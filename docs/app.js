@@ -19,9 +19,9 @@ function h(etiqueta, atributos, ...hijos) {
     if (hijo instanceof Node) el.append(hijo);
     else if (etiqueta === 'option' || etiqueta === 'textarea') el.append(String(hijo));
     else {
-      for (const parte of String(hijo).split(/(\d(?:[\d.,:/]*\d)?)/)) {
+      for (const parte of String(hijo).split(/((?:\$ )?\d(?:[\d.,:/]*\d)?)/)) {
         if (!parte) continue;
-        if (/^\d/.test(parte)) {
+        if (/^(\$ )?\d/.test(parte)) {
           const n = document.createElement('span');
           n.className = 'num';
           n.textContent = parte;
@@ -199,7 +199,7 @@ function cargando() { mostrar(h('p', { class: 'suave' }, 'Cargando…')); }
 
 /* ---------- Portal ---------- */
 
-const ARCOS_PORTAL = '<svg viewBox="0 0 200 260" aria-hidden="true"><g fill="none" stroke-width="18" stroke-linecap="round"><path d="M22 22A108 108 0 0 1 22 238" stroke="#EEF0F8"/><path d="M22 56A74 74 0 0 1 22 204" stroke="#EEF0F8"/><path d="M22 90A40 40 0 0 1 22 170" stroke="#EEF0F8"/><path d="M22 22A108 108 0 0 1 22 238" stroke="#0090FF" pathLength="100" stroke-dasharray="64 200"/><path d="M22 56A74 74 0 0 1 22 204" stroke="#A855F7" pathLength="100" stroke-dasharray="80 200"/><path d="M22 90A40 40 0 0 1 22 170" stroke="#0F172A" pathLength="100" stroke-dasharray="46 200"/></g></svg>';
+const CONEXIONES_PORTAL = '<svg viewBox="0 0 240 260" aria-hidden="true"><defs><linearGradient id="cx" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#0090FF"/><stop offset="1" stop-color="#A855F7"/></linearGradient></defs><g fill="none" stroke="url(#cx)" stroke-width="3" stroke-linecap="round"><path d="M30 50C80 50 80 130 120 130S160 50 210 50"/><path d="M30 130.100H210V130"/><path d="M30 210C80 210 80 130 120 130S160 210 210 210"/></g><g fill="#0090FF"><circle cx="30" cy="50" r="9"/><circle cx="30" cy="130" r="9"/><circle cx="30" cy="210" r="9"/></g><g fill="#A855F7"><circle cx="210" cy="50" r="9"/><circle cx="210" cy="130" r="9"/><circle cx="210" cy="210" r="9"/></g><circle cx="120" cy="130" r="20" fill="url(#cx)"/></svg>';
 
 const PROXIMAS = [
   ['Cumpleaños', 'Regalos y festejo compartido.'],
@@ -220,7 +220,7 @@ function pantallaInicio() {
     h('p', { class: 'suave' }, 'Elegí una experiencia y reuní a tu gente.'),
     h('section', { class: 'tarjetas' },
       h('div', { class: 'tarjeta ancha destacada' },
-        dibujo('dibujo', ARCOS_PORTAL),
+        dibujo('dibujo', CONEXIONES_PORTAL),
         h('div', { class: 'datos' },
           h('p', { class: 'chico suave' }, 'Experiencia destacada'),
           h('p', { class: 'titulo' }, NAVIDAD.nombre),
@@ -272,7 +272,7 @@ function pantallaNavidad() {
         campo('Tu mail', h('input', { name: 'mail', type: 'email', maxlength: 100, autocomplete: 'email' }))),
       h('details', {},
         h('summary', {}, 'Aviso de privacidad'),
-        h('p', {}, 'Guardamos solo los nombres, teléfonos, mails y listas de deseos que se carguen, y los usamos únicamente para este sorteo. Los mails se envían a través de Google. Todo se borra 30 días después del evento.'),
+        h('p', {}, 'Guardamos solo los nombres, teléfonos, mails y listas de deseos que se carguen, y los usamos únicamente para este sorteo. Los mails se envían a través de Google. La fila del sorteo se elimina de la planilla 30 días después del evento.'),
         h('p', {}, 'Quien organiza ve con qué mail entró cada persona y quién ya vio su regalo. En una emergencia, puede ver el sorteo completo.'),
         h('p', {}, 'Cargá solo a personas que estén de acuerdo. De los niños, alcanza con el nombre de pila.')),
       opcion({ type: 'checkbox', name: 'acepta' }, 'Leí y acepto el aviso de privacidad'),
@@ -370,12 +370,17 @@ async function pantallaAdmin(id, token, vigente) {
 
   function camposPersona(p) {
     const adultos = s.personas.filter((x) => x.tipo === 'adulto' && x.id !== p.id).map((x) => [x.id, x.nombre]);
-    const gestiona = selector({ name: 'responsable', onchange: () => acomodar() }, [['', 'Nadie, entra por su cuenta'], ...adultos], p.responsable || '');
-    const responsable = campo('Quién gestiona su regalo', gestiona);
+    const gestiona = selector({ name: 'responsable', onchange: () => acomodar() }, [['', 'Sin responsable, entra por su cuenta'], ...adultos], p.responsable || '');
+    const responsable = campo('Responsable', gestiona);
     const tipo = selector({ name: 'tipo', onchange: () => acomodar() }, [['adulto', 'Adulto'], ['nino', 'Niño']], p.tipo || 'adulto');
     const telefono = campo('Teléfono, con código de área (opcional con mail)', h('input', { class: 'num', name: 'telefono', type: 'tel', maxlength: 25, autocomplete: 'off', value: p.telefono || '' }));
     const correo = campo('Mail, ahí recibe su link y su PIN', h('input', { name: 'correo', type: 'email', maxlength: 100, autocomplete: 'off', value: p.correo || '' }));
+    const elegirAdulto = (nombre, texto, valor) => campo(texto, selector({ name: nombre }, [['', 'Sin indicar'], ...adultos], valor || ''));
+    const pareja = elegirAdulto('pareja', 'Pareja (opcional)', p.pareja);
+    const padres = h('div', { class: 'dos' }, [0, 1].map((i) => elegirAdulto('padre' + (i + 1), 'Madre / Padre (opcional)', (p.padres || [])[i])));
     const acomodar = () => {
+      pareja.hidden = tipo.value === 'nino' || !adultos.length;
+      padres.hidden = tipo.value !== 'nino' || !adultos.length;
       correo.hidden = tipo.value === 'nino' && gestiona.value !== '';
       responsable.hidden = tipo.value !== 'nino';
       telefono.hidden = tipo.value === 'nino' && gestiona.value !== '';
@@ -385,7 +390,7 @@ async function pantallaAdmin(id, token, vigente) {
       h('div', { class: 'dos' },
         campo('Nombre', h('input', { name: 'nombre', maxlength: 40, autocomplete: 'off', value: p.nombre || '' })),
         campo('Es', tipo)),
-      responsable, correo, telefono
+      responsable, correo, telefono, pareja, padres
     ];
   }
 
@@ -400,14 +405,19 @@ async function pantallaAdmin(id, token, vigente) {
   function estadoPersona(p) {
     if (!abierto()) {
       if (regala(p) && p.vio) return [p.responsable ? 'Su regalo ya se vio' : 'Vio su regalo', 'verde'];
-      if (!regala(p)) return [p.validada ? 'Validó, solo recibe' : 'Solo recibe', 'suave'];
+      if (!regala(p)) return p.responsable ? ['A cargo de un adulto', 'suave'] : p.validada ? ['Validó', 'verde'] : sinValidar(p);
       if (p.responsable) return ['Todavía no se vio su regalo', 'ambar'];
       if (!p.validada) return sinValidar(p);
       if (p.envio === 'error') return ['Validó, pero no se pudo enviar el link', 'rojo'];
       return ['Entró, todavía no vio su regalo', 'ambar'];
     }
-    if (p.responsable) return ['Entra con ' + nombreDe(p.responsable), 'suave'];
+    if (p.responsable) return ['A cargo de un adulto', 'suave'];
     return p.validada ? ['Validó', 'verde'] : sinValidar(p);
+  }
+
+  function relacionesDe(p) {
+    return [p.pareja ? 'Pareja: ' + nombreDe(p.pareja) : '',
+      p.padres.length ? 'Madre / Padre: ' + p.padres.map(nombreDe).join(' y ') : ''].filter(Boolean).join(' · ');
   }
 
   function filaPersona(p) {
@@ -423,7 +433,9 @@ async function pantallaAdmin(id, token, vigente) {
         h('div', { class: 'fila' },
           h('div', {},
             h('p', {}, p.nombre),
-            h('p', { class: 'chico suave' }, (p.tipo === 'nino' ? 'Niño' : 'Adulto') + (p.responsable ? ' · lo gestiona ' + nombreDe(p.responsable) : [p.correo || p.mail, p.telefono].filter(Boolean).map((x) => ' · ' + x).join('') + (!p.validada ? '' : ` · validó el ${fechaCorta(p.validada)} a las ${p.validada.slice(11)}`))),
+            h('p', { class: 'chico suave' }, (p.tipo === 'adulto' ? 'Adulto' : regala(p) ? 'Participante menor de edad' : 'Destinatario adicional') + (p.responsable ? ' · Responsable: ' + nombreDe(p.responsable) : [p.correo || p.mail, p.telefono].filter(Boolean).map((x) => ' · ' + x).join('') + (!p.validada ? '' : ` · validó el ${fechaCorta(p.validada)} a las ${p.validada.slice(11)}`))),
+            relacionesDe(p) ? h('p', { class: 'chico suave' }, relacionesDe(p)) : null,
+            p.mailPropuesto ? h('p', { class: 'chico ambar' }, `Cambio de mail a ${p.mailPropuesto}: falta que lo confirme desde Mi regalo.`) : null,
             h('p', { class: 'chico ' + clase }, texto)),
           h('div', { class: 'acciones' },
             abierto() ? enlace('Editar', editar) : null,
@@ -431,14 +443,27 @@ async function pantallaAdmin(id, token, vigente) {
             !abierto() && !p.validada && !p.responsable ? enlace('Corregir datos', corregir) : null,
             p.correo && !p.validada ? accion(p.envio === 'enviado' ? 'Reenviar PIN' : 'Enviar PIN', '', 'invitar') : null,
             !abierto() && p.validada ? accion('Reenviar link', '', 'reenviar') : null,
-            p.validada ? accion('Liberar', `¿Liberar el nombre de ${p.nombre}? Se corta el acceso de ${p.mail} y el nombre vuelve a quedar disponible.`, 'liberar') : null)),
+            p.validada ? enlace('Corregir mail', corregirMail) : null,
+            p.validada ? accion('Liberar', `¿Liberar el nombre de ${p.nombre}? Se corta el acceso de ${p.mail}. Se borran su lista y las de todos los menores a su cargo.`, 'liberar') : null)),
         aviso);
     };
     const editar = () => {
       const aviso = zonaAviso();
-      li.replaceChildren(formulario(aviso, (d) => cambiar('editarPersona', { persona: p.id, ...d }),
+      li.replaceChildren(formulario(aviso, (d) => {
+        const gestor = d.tipo === 'nino' ? d.responsable : '';
+        const vaciar = !!p.responsable && gestor !== p.responsable;
+        if (vaciar && !confirm(`Cambia quién accede a ${p.nombre}. Si tiene deseos cargados, se borran. ¿Seguir?`)) return;
+        return cambiar('editarPersona', { persona: p.id, ...d, vaciar });
+      },
         ...camposPersona(p), aviso,
         h('div', { class: 'acciones' }, enviar('Guardar'), enlace('Cancelar', ver))));
+    };
+    const corregirMail = () => {
+      const aviso = zonaAviso();
+      li.replaceChildren(formulario(aviso, (d) => cambiar('proponerMail', { persona: p.id, mail: d.mail }),
+        campo('Mail nuevo de ' + p.nombre, h('input', { name: 'mail', type: 'email', maxlength: 100, autocomplete: 'off', value: p.mailPropuesto })),
+        h('p', { class: 'chico suave' }, 'Cambia recién cuando lo confirma desde su Mi regalo. No se pierde ningún dato.'), aviso,
+        h('div', { class: 'acciones' }, enviar('Proponer cambio'), enlace('Cancelar', ver))));
     };
     const corregir = () => {
       const aviso = zonaAviso();
@@ -470,41 +495,52 @@ async function pantallaAdmin(id, token, vigente) {
   /* Matriz: los toques se ven al instante y se guardan de a uno, en orden. Si una misma
      celda cambia varias veces, solo se guarda el último valor. El estado se muestra
      cuando no queda nada por guardar, así nunca corresponde a una versión vieja. */
-  const porGuardar = new Map(); // 'de>a' -> excluida
-  let enCurso = null; // [clave, excluida] que se está guardando
+  const porGuardar = new Map(); // par de ids -> excluida
+  let enCurso = null; // [par, excluida] que se está guardando
   let guardado = Promise.resolve();
   let guardando = false;
   let fallaMatriz = '';
-  const clave = (de, a) => de + '>' + a;
+  const celdas = new Map(); // 'de>a' -> botón
+  const par = (de, a) => de < a ? de + '>' + a : a + '>' + de;
   const guardada = (de, a) => s.exclusiones.some((e) => e.de === de && e.a === a);
   function excluida(de, a) {
-    const k = clave(de, a);
+    const k = par(de, a);
     if (porGuardar.has(k)) return porGuardar.get(k);
     if (enCurso && enCurso[0] === k) return enCurso[1];
     return guardada(de, a);
   }
+  function propuesta(de, a) {
+    const k = par(de, a);
+    if (porGuardar.has(k) || (enCurso && enCurso[0] === k)) return null;
+    return s.propuestas.find((x) => par(x.de, x.a) === k) || null;
+  }
+  const MOTIVOS = { pareja: 'Pareja', progenitor: 'Madre / Padre', a_cargo: 'Responsable' };
+  const motivos = (x) => x.motivos.map((m) => MOTIVOS[m] || m).join(', ');
   /** Los cruces que la modalidad no usa nunca se sortean. */
   const aplica = (de, a) => de.id !== a.id && (s.evento.modalidad === 'A' ? de.tipo === a.tipo : de.tipo === 'adulto');
 
-  function alternar(de, a, boton) {
-    const valor = !excluida(de.id, a.id);
-    porGuardar.set(clave(de.id, a.id), valor);
+  function alternar(de, a) {
+    porGuardar.set(par(de.id, a.id), !excluida(de.id, a.id));
     fallaMatriz = '';
-    pintarCelda(boton, de, a);
+    for (const [x, y] of [[de, a], [a, de]]) {
+      const boton = celdas.get(x.id + '>' + y.id);
+      if (boton) pintarCelda(boton, x, y);
+    }
     pintarEstadoMatriz();
     if (!guardando) guardado = guardarMatriz();
   }
 
   async function guardarMatriz() {
     guardando = true;
+    const propuestasAntes = JSON.stringify(s.propuestas);
     try {
       while (porGuardar.size) {
         const [k, valor] = porGuardar.entries().next().value;
         porGuardar.delete(k);
         const [de, a] = k.split('>');
-        if (valor === guardada(de, a)) continue;
+        if (valor === guardada(de, a) && valor === guardada(a, de)) continue;
         enCurso = [k, valor];
-        s = await pedirAdmin(valor ? 'agregarExclusion' : 'quitarExclusion', { de, a });
+        s = await pedirAdmin(valor ? 'agregarExclusion' : 'quitarExclusion', { de, a, ambos: true });
         enCurso = null;
       }
     } catch (error) {
@@ -515,7 +551,8 @@ async function pantallaAdmin(id, token, vigente) {
     } finally {
       guardando = false;
       if (vigente()) {
-        if (fallaMatriz) pintarExclusiones(); else { pintarEstadoMatriz(); pintarResumen(); }
+        if (fallaMatriz || JSON.stringify(s.propuestas) !== propuestasAntes) pintarExclusiones(); else pintarEstadoMatriz();
+        if (!fallaMatriz) pintarResumen();
       }
     }
   }
@@ -528,9 +565,12 @@ async function pantallaAdmin(id, token, vigente) {
 
   function pintarCelda(boton, de, a) {
     const no = excluida(de.id, a.id);
+    const sugerida = no ? null : propuesta(de.id, a.id);
     boton.setAttribute('aria-pressed', no);
-    boton.setAttribute('aria-label', no ? `${de.nombre} no le regala a ${a.nombre}` : `${de.nombre} puede regalarle a ${a.nombre}`);
-    boton.textContent = no ? '✕' : '○';
+    boton.classList.toggle('sugerida', !!sugerida);
+    boton.setAttribute('aria-label', no ? `${de.nombre} no le regala a ${a.nombre}`
+      : sugerida ? `Propuesta, ${motivos(sugerida)}: ${de.nombre} no le regala a ${a.nombre}. Tocá para aceptarla.` : `${de.nombre} puede regalarle a ${a.nombre}`);
+    boton.textContent = no ? '✕' : sugerida ? '?' : '○';
   }
 
   const estadoMatriz = h('div', { role: 'status' });
@@ -543,24 +583,52 @@ async function pantallaAdmin(id, token, vigente) {
       : guardando || porGuardar.size ? ['Verificando…', 'suave']
         : !v ? ['', 'suave']
           : v.ok ? ['Resoluble: el sorteo se puede hacer.', 'verde'] : ['Conflicto: ' + v.motivo, 'rojo'];
-    estadoMatriz.replaceChildren(h('p', { class: clase }, texto), h('p', { class: 'chico suave' }, cuenta));
+    const vp = guardando || porGuardar.size || fallaMatriz ? null : s.verificacionConPropuestas;
+    estadoMatriz.replaceChildren(...[h('p', { class: clase }, texto),
+      vp ? h('p', { class: 'chico ' + (vp.ok ? 'verde' : 'rojo') }, vp.ok ? 'Si aceptás todas las propuestas, sigue siendo resoluble.' : 'Si aceptás todas las propuestas, hay conflicto.') : null,
+      h('p', { class: 'chico suave' }, cuenta)].filter(Boolean));
+  }
+
+  /** Propuestas y relaciones que ya no figuran: nada cambia sin una decisión. */
+  function revisar(aviso) {
+    const decidir = (texto, accion, x) => enlace(texto, (ev) => ejecutar(ev.currentTarget, aviso, async () => {
+      await matrizLista();
+      await cambiar(accion, x);
+    }));
+    const renglon = (x, texto, ...botones) => h('div', { class: 'fila renglon' },
+      h('div', {}, h('p', {}, `${nombreDe(x.de)} y ${nombreDe(x.a)}`), h('p', { class: 'chico suave' }, texto)), h('div', { class: 'acciones' }, botones));
+    if (!s.propuestas.length && !s.sinRelacion.length) return null;
+    return h('div', { class: 'tarjeta revisar' },
+      s.propuestas.length ? [
+        h('h3', {}, 'Exclusiones propuestas'),
+        h('p', { class: 'chico suave' }, 'Salen de las relaciones que cargaste. No cuentan hasta que las aceptes.'),
+        s.propuestas.map((x) => renglon(x, motivos(x),
+          decidir('Aceptar', 'aceptarPropuesta', { de: x.de, a: x.a }), decidir('Descartar', 'descartarPropuesta', { de: x.de, a: x.a }))),
+        s.propuestas.length > 1 ? decidir('Aceptar todas', 'aceptarPropuesta', {}) : null] : null,
+      s.sinRelacion.length ? [
+        h('h3', {}, 'La relación ya no figura'),
+        s.sinRelacion.map((x) => renglon(x, 'Aprobada por: ' + motivos(x),
+          decidir('Mantener', 'mantenerExclusion', { de: x.de, a: x.a }), decidir('Quitar', 'quitarExclusion', { de: x.de, a: x.a, ambos: true })))] : null);
   }
 
   function pintarExclusiones() {
     const aviso = zonaAviso();
     const ejemplo = h('div', { class: 'ejemplo' });
+    celdas.clear();
     const filas = s.personas.filter((de) => s.personas.some((a) => aplica(de, a)));
     const celda = (de, a) => {
       if (!aplica(de, a)) return h('td', {}, h('span', { 'aria-label': 'No corresponde' }, '—'));
       if (!abierto()) return h('td', {}, h('span', {}, guardada(de.id, a.id) ? '✕' : '○'));
-      const boton = h('button', { type: 'button', onclick: () => alternar(de, a, boton) });
+      const boton = h('button', { type: 'button', onclick: () => alternar(de, a) });
+      celdas.set(de.id + '>' + a.id, boton);
       pintarCelda(boton, de, a);
       return h('td', {}, boton);
     };
     zonas.exclusiones.replaceChildren(...[
       h('h1', {}, 'Exclusiones'),
-      h('p', { class: 'suave' }, !filas.length ? 'Agregá personas para ver los cruces.' : abierto() ? 'Opcional. La fila regala, la columna recibe. Tocá un cruce para bloquearlo o permitirlo.' : 'El sorteo está hecho: las exclusiones quedan fijas.'),
-      filas.length ? h('p', { class: 'chico suave' }, '○ permitido · ✕ excluido · — no corresponde') : null,
+      h('p', { class: 'suave' }, !filas.length ? 'Agregá personas para ver los cruces.' : abierto() ? 'Opcional. La fila regala, la columna recibe. Tocá un cruce para bloquearlo o permitirlo en los dos sentidos.' : 'El sorteo está hecho: las exclusiones quedan fijas.'),
+      filas.length ? h('p', { class: 'chico suave' }, s.propuestas.length ? '○ permitido · ✕ excluido · ? propuesta sin revisar · — no corresponde' : '○ permitido · ✕ excluido · — no corresponde') : null,
+      revisar(aviso),
       filas.length ? h('div', { class: 'matriz', tabindex: 0, role: 'region', 'aria-label': 'Matriz de exclusiones' }, h('table', {},
         h('thead', {}, h('tr', {}, h('th', { scope: 'col' }, 'Regala'), s.personas.map((a) => h('th', { scope: 'col' }, a.nombre)))),
         h('tbody', {}, filas.map((de) => h('tr', {}, h('th', { scope: 'row' }, de.nombre), s.personas.map((a) => celda(de, a))))))) : null,
@@ -573,7 +641,7 @@ async function pantallaAdmin(id, token, vigente) {
             await matrizLista();
             const lista = await pedirAdmin('simular');
             ejemplo.replaceChildren(
-              h('p', { class: 'ambar' }, 'Esto es un ejemplo. El sorteo real va a ser otro.'),
+              h('p', { class: 'ambar' }, 'Esto es un ejemplo. El sorteo real va a ser otro.' + (s.propuestas.length ? ' No incluye las propuestas sin revisar.' : '')),
               ...lista.map((x) => h('div', { class: 'renglon' }, h('span', {}, x.nombre), h('span', {}, 'le regala a ' + x.regalaA.join(' y ')))));
           })
         }, 'Simular'),
@@ -600,7 +668,7 @@ async function pantallaAdmin(id, token, vigente) {
 
   function arcos(filas) {
     const trazos = ['M22 20A100 100 0 0 1 22 220', 'M22 52A68 68 0 0 1 22 188', 'M22 84A36 36 0 0 1 22 156'];
-    const fondo = trazos.map((d) => `<path d="${d}" stroke="#EEF0F8"/>`).join('');
+    const fondo = trazos.map((d) => `<path d="${d}" stroke="#EEF1F8"/>`).join('');
     const valores = filas.map(([, color, [n, total]], i) =>
       n ? `<path d="${trazos[i]}" stroke="${color}" pathLength="100" stroke-dasharray="${Math.round(n / total * 100)} 200"/>` : '').join('');
     const el = dibujo('', `<svg viewBox="0 0 170 240" aria-hidden="true"><g fill="none" stroke-width="18" stroke-linecap="round">${fondo}${valores}</g></svg>`);
@@ -622,6 +690,7 @@ async function pantallaAdmin(id, token, vigente) {
       type: 'button', onclick: (ev) => ejecutar(ev.currentTarget, aviso, async () => {
         await cola;
         await matrizLista();
+        if (s.propuestas.length) throw new Error('Hay exclusiones propuestas sin revisar: aceptalas o descartalas en Exclusiones.');
         if (eventoSinGuardar) throw new Error('Revisá los datos del evento: ' + eventoSinGuardar);
         const partes = ['¿Hacer el sorteo? Después las personas quedan fijas.'];
         if (conMail) partes.push(`Se ${conMail === 1 ? 'envía 1 mail' : `envían ${conMail} mails`}.`);
@@ -777,7 +846,7 @@ async function pantallaGrupo(id, extra, vigente) {
           }, h('span', {}, p.nombre), h('span', { class: 'chico suave' }, recordada ? 'En este dispositivo' : p.validada ? 'Validado' : '')));
         }))
         : h('p', {}, 'Todavía no hay nombres para elegir.'),
-      h('p', { class: 'chico suave' }, 'Si no ves tu nombre, consultale a quien organiza. Los niños pueden estar a cargo de un adulto.')));
+      h('p', { class: 'chico suave' }, 'Si no ves tu nombre, consultale a quien organiza. Los menores pueden estar a cargo de un adulto.')));
 }
 
 function pantallaPin(id, p) {
@@ -870,13 +939,14 @@ const TEXTOS = [
   ['pistas', 'Pistas adicionales', 'Cualquier detalle que ayude a elegir']
 ];
 const MAX_TEXTO = 500;
+const MAX_GUSTOS = 12;
 
 /** Tolera listas vacías, incompletas o con el formato de texto anterior. */
 function leerPerfil(x) {
   const o = typeof x === 'string' ? { recibir: x } : x && typeof x === 'object' ? x : {};
   const t = (v) => typeof v === 'string' ? v : '';
   return {
-    id: t(o.id), nombre: t(o.nombre), compartir: o.compartir !== false,
+    id: t(o.id), nombre: t(o.nombre), compartir: o.compartir === undefined || o.compartir === true,
     talles: Object.fromEntries(TALLES.map(([k]) => [k, t(o.talles?.[k])])),
     gustos: Array.isArray(o.gustos) ? o.gustos.filter((g) => typeof g === 'string') : [],
     ...Object.fromEntries(TEXTOS.map(([k]) => [k, t(o[k])])),
@@ -885,7 +955,7 @@ function leerPerfil(x) {
 }
 
 /** Formulario de un perfil: bloques plegados, todos opcionales. */
-function formularioPerfil(perfil, editable, alGuardar, extra) {
+function formularioPerfil(perfil, editable, alGuardar, alRevocar, extra) {
   const aviso = zonaAviso();
   const bloque = (titulo, ...hijos) => h('details', { class: 'bloque' }, h('summary', {}, titulo), h('div', {}, hijos));
   const propios = perfil.gustos.filter((g) => !GUSTOS.includes(g));
@@ -894,10 +964,16 @@ function formularioPerfil(perfil, editable, alGuardar, extra) {
     const d = new FormData(form);
     const v = (k) => String(d.get(k) || '').trim();
     const otros = v('otros').split(',').map((g) => g.trim()).filter(Boolean);
+    const gustos = [...new Set([...d.getAll('gusto'), ...otros])];
+    const largo = TEXTOS.reduce((suma, [k]) => suma + v(k).length, 0);
+    if (largo > MAX_TEXTO) throw new Error(`No se envió: los textos suman ${largo} caracteres y el máximo es ${MAX_TEXTO}. Acortá alguno.`);
+    if (gustos.length > MAX_GUSTOS) throw new Error(`No se envió: elegiste ${gustos.length} gustos y el máximo es ${MAX_GUSTOS}.`);
+    const gustoLargo = gustos.find((g) => g.length > 30);
+    if (gustoLargo) throw new Error(`No se envió: "${gustoLargo}" supera los 30 caracteres por gusto.`);
     await alGuardar({
       compartir: d.get('compartir') === 'on',
       talles: Object.fromEntries(TALLES.map(([k]) => [k, v('talle-' + k)])),
-      gustos: [...new Set([...d.getAll('gusto'), ...otros])],
+      gustos,
       ...Object.fromEntries(TEXTOS.map(([k]) => [k, v(k)]))
     }, v('nombre'));
     aviso.decir('Guardado', 'verde');
@@ -919,15 +995,28 @@ function formularioPerfil(perfil, editable, alGuardar, extra) {
   };
   form.addEventListener('input', contar);
   contar();
-  if (!editable) for (const el of form.elements) el.disabled = true;
+  if (!editable) {
+    for (const el of form.elements) el.disabled = true;
+    if (perfil.compartir) {
+      const revocar = h('button', {
+        type: 'button', class: 'segundo', onclick: () => ejecutar(revocar, aviso, async () => {
+          await alRevocar();
+          form.elements.compartir.checked = false;
+          revocar.remove();
+          aviso.decir('Ya no se comparte.', 'verde');
+        })
+      }, 'Dejar de compartir');
+      form.querySelector('.cierre').append(revocar);
+    }
+  }
   return form;
 }
 
 /** Lo que ve quien regala. */
-function verPistas(pistas) {
+function verPistas(pistas, adulto) {
   if (!pistas.length) return h('p', { class: 'suave' }, 'Todavía no dejó pistas. Podés volver más tarde o sorprender con algo simple.');
   return h('div', { class: 'pistas' }, pistas.map((x) => h('div', {},
-    x.hijo ? h('h3', { style: 'margin-top: 24px' }, 'Para ' + x.hijo + ', a su cargo') : null,
+    x.hijo ? h('h3', { style: 'margin-top: 24px' }, x.hijo + ', a cargo de ' + adulto) : null,
     h('dl', {},
       x.talles ? [h('dt', {}, 'Talles'), h('dd', {}, TALLES.filter(([k]) => x.talles[k]).map(([k, t]) => `${t}: ${x.talles[k]}`).join('\n'))] : [],
       x.gustos ? [h('dt', {}, 'Le gusta'), h('dd', {}, x.gustos.join(', '))] : [],
@@ -963,12 +1052,12 @@ async function pantallaRegalo(id, persona, vigente) {
           type: 'button', class: 'encender', onclick: (ev) => ejecutar(ev.currentTarget, aviso, async () => {
             const lista = await pedir('descubrir', { ...acceso, persona: quien.persona });
             sello.classList.add('abierto');
-            if (NAVIDAD.decoracion && !matchMedia('(prefers-reduced-motion: reduce)').matches) await new Promise((listo) => setTimeout(listo, 700));
+            if (NAVIDAD.decoracion && !matchMedia('(prefers-reduced-motion: reduce)').matches) await new Promise((listo) => setTimeout(listo, 1000));
             zona.replaceChildren(h('div', { class: 'sello' },
               NAVIDAD.decoracion ? rafaga() : null,
               ...lista.map((r) => h('div', { class: 'regalo' },
                 h('p', { class: 'nombre' }, r.nombre),
-                verPistas(r.pistas || []))),
+                verPistas(r.pistas || [], r.nombre))),
               h('button', { type: 'button', class: 'segundo', onclick: oculto }, 'Ocultar')));
           })
         }, icono('destello'), 'Tocar para encender el encuentro'));
@@ -977,7 +1066,7 @@ async function pantallaRegalo(id, persona, vigente) {
     if (quien.regala) oculto();
     else zona.append(h('p', { class: 'suave' }, !yo.sorteado
       ? 'Todavía no se hizo el sorteo.'
-      : esOtro ? `${quien.nombre} solo recibe.` : 'Esta vez solo recibís.'));
+      : esOtro ? `${quien.nombre} es destinatario adicional: recibe un regalo y no tiene asignación propia.` : 'Sos destinatario adicional: recibís un regalo y no tenés asignación propia.'));
     return zona;
   }
 
@@ -996,65 +1085,130 @@ async function pantallaRegalo(id, persona, vigente) {
   /** Perfil propio o de un niño a cargo que participa. */
   function listaDe(quien) {
     const lista = leerPerfil(quien.lista || quien.deseos);
-    return h('div', { class: 'perfil' }, formularioPerfil(lista, yo.editable !== false, (datos) =>
-      pedir('guardarPerfil', { ...acceso, persona: quien.persona, datos })));
+    return h('div', { class: 'perfil' }, formularioPerfil(lista, yo.editable !== false,
+      (datos) => pedir('guardarPerfil', { ...acceso, persona: quien.persona, datos }),
+      () => pedir('dejarDeCompartir', { ...acceso, persona: quien.persona })));
   }
 
-  /** Hijos que no participan: viven en la lista de su adulto y no entran al sorteo. */
-  function zonaHijos() {
-    const editable = yo.editable !== false;
-    const perfiles = h('div');
-    const agregar = h('button', {
-      type: 'button', class: 'segundo', onclick: () => {
-        if (perfiles.querySelector('[data-nuevo]')) return perfiles.querySelector('[data-nuevo] input').focus();
-        const caja = perfilHijo(leerPerfil({}));
-        perfiles.append(caja);
-        caja.querySelector('input').focus();
-      }
-    }, 'Agregar hijo/a');
-    function perfilHijo(hijo) {
-      let idPerfil = hijo.id || 'nuevo';
-      const aviso = zonaAviso();
-      const titulo = h('summary', {}, hijo.nombre || 'Nuevo perfil');
-      const quitar = enlace('Quitar perfil', (ev) => {
-        if (idPerfil === 'nuevo') return caja.remove();
-        if (!confirm('¿Quitar este perfil y sus deseos?')) return;
-        ejecutar(ev.currentTarget, aviso, async () => {
-          await pedir('quitarPerfil', { ...acceso, perfil: idPerfil });
-          caja.remove();
-        });
-      });
-      const caja = h('details', { class: 'bloque perfil', open: idPerfil === 'nuevo', 'data-nuevo': idPerfil === 'nuevo' }, titulo,
-        h('div', {}, formularioPerfil(hijo, editable, async (datos, nombre) => {
-          const r = await pedir('guardarPerfil', { ...acceso, perfil: idPerfil, nombre, datos });
-          idPerfil = r.perfil;
-          caja.removeAttribute('data-nuevo');
-          titulo.textContent = nombre;
-        }, h('div', { style: 'padding-bottom: 20px' }, campo('Nombre', h('input', { name: 'nombre', maxlength: 40, autocomplete: 'off', value: hijo.nombre })))),
-        editable ? quitar : null, aviso));
-      return caja;
+  /* Pestañas: una por persona. Cambiar de pestaña no pierde lo escrito. */
+  const editable = yo.editable !== false;
+  const barra = h('div', { class: 'pestanas', role: 'tablist', 'aria-label': 'Personas' });
+  const paneles = h('div');
+  function pestana(titulo, panel) {
+    const n = ++pestana.n;
+    const boton = h('button', { type: 'button', role: 'tab', id: 'tab' + n, 'aria-controls': 'panel' + n, onclick: () => elegir(boton) }, titulo);
+    panel.id = 'panel' + n;
+    panel.setAttribute('role', 'tabpanel');
+    panel.setAttribute('aria-labelledby', 'tab' + n);
+    boton.panel = panel;
+    barra.append(boton);
+    paneles.append(panel);
+    return boton;
+  }
+  pestana.n = 0;
+  const tabs = () => [...barra.querySelectorAll('[role=tab]')];
+  function elegir(boton) {
+    for (const t of tabs()) {
+      t.setAttribute('aria-selected', t === boton);
+      t.tabIndex = t === boton ? 0 : -1;
+      t.panel.hidden = t !== boton;
     }
-    perfiles.append(...leerPerfil(yo.lista).hijos.map(perfilHijo));
-    return h('section', {},
-      h('h2', {}, 'Hijos que no participan del sorteo'),
-      h('p', { class: 'suave' }, 'Si querés, dejá pistas para ellos. Las ve quien te regala a vos, solo si las compartís.'),
-      perfiles, editable ? agregar : null);
+    boton.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    unaSola();
+  }
+  function unaSola() { for (const t of tabs()) t.hidden = tabs().length === 1; }
+  barra.addEventListener('keydown', (e) => {
+    const paso = { ArrowRight: 1, ArrowLeft: -1 }[e.key];
+    const i = tabs().indexOf(document.activeElement);
+    if (!paso || i < 0) return;
+    const otra = tabs()[(i + paso + tabs().length) % tabs().length];
+    elegir(otra);
+    otra.focus();
+  });
+
+  /** Hijo que no participa: vive en la lista de su adulto y no entra al sorteo. */
+  function pestanaHijo(hijo) {
+    let idPerfil = hijo.id || 'nuevo';
+    const aviso = zonaAviso();
+    const rotulo = (nombre) => nombre || 'Nuevo menor a cargo';
+    const titulo = h('h2', {}, hijo.nombre ? 'Lista de deseos de ' + hijo.nombre : 'Nuevo menor a cargo');
+    const cerrar = () => {
+      boton.panel.remove();
+      boton.remove();
+      elegir(tabs()[0]);
+    };
+    const quitar = enlace('Quitar perfil', (ev) => {
+      if (idPerfil === 'nuevo') return cerrar();
+      if (!confirm('¿Quitar este perfil y sus deseos?')) return;
+      ejecutar(ev.currentTarget, aviso, async () => {
+        await pedir('quitarPerfil', { ...acceso, perfil: idPerfil });
+        cerrar();
+      });
+    });
+    const boton = pestana(rotulo(hijo.nombre), h('div', { class: 'perfil' },
+      titulo,
+      h('p', { class: 'suave' }, 'A cargo de un adulto. Responsable: vos. Sus pistas las ve quien te regala a vos, solo si las compartís.'),
+      formularioPerfil(hijo, editable, async (datos, nombre) => {
+        const r = await pedir('guardarPerfil', { ...acceso, perfil: idPerfil, nombre, datos });
+        idPerfil = r.perfil;
+        boton.textContent = rotulo(nombre);
+        titulo.textContent = 'Lista de deseos de ' + nombre;
+      }, () => pedir('dejarDeCompartir', { ...acceso, perfil: idPerfil }),
+      h('div', { style: 'padding-bottom: 20px' }, campo('Nombre', h('input', { name: 'nombre', maxlength: 40, autocomplete: 'off', value: hijo.nombre })))),
+      editable ? quitar : null, aviso));
+    boton.esNuevo = () => idPerfil === 'nuevo';
+    return boton;
+  }
+
+  const propia = pestana(yo.nombre + ' (vos)', h('div', {},
+    h('div', {}, h('h2', {}, 'Tu regalo'), zonaRegalo(yo, false)),
+    h('section', {},
+      h('h2', {}, 'Tu lista de deseos'),
+      h('p', { class: 'suave' }, 'Dejá algunas pistas para quien te regala. Todo es opcional.'),
+      listaDe(yo))));
+  for (const n of yo.aCargo) {
+    pestana(n.nombre, h('div', {},
+      h('div', {}, h('h2', {}, 'El regalo de ' + n.nombre), zonaRegalo(n, true)),
+      h('section', {}, h('h2', {}, 'Lista de deseos de ' + n.nombre), listaDe(n))));
+  }
+  leerPerfil(yo.lista).hijos.forEach(pestanaHijo);
+  const sumar = yo.puedeSumarHijos && editable ? h('button', {
+    type: 'button', class: 'sumar', onclick: () => {
+      const boton = tabs().find((t) => t.esNuevo?.()) || pestanaHijo(leerPerfil({}));
+      barra.append(sumar);
+      elegir(boton);
+      boton.panel.querySelector('input').focus();
+    }
+  }, '+ Menor a cargo') : null;
+  if (sumar) barra.append(sumar);
+  elegir(propia);
+
+  function avisoMail() {
+    const aviso = zonaAviso();
+    const caja = h('div', { class: 'tarjeta', style: 'margin-bottom: 32px' },
+      h('p', {}, `Quien organiza propone cambiar tu mail a ${yo.mailPropuesto}. Confirmalo solo si es tuyo.`),
+      h('div', { class: 'acciones' },
+        h('button', {
+          type: 'button', class: 'segundo', onclick: (ev) => ejecutar(ev.currentTarget, aviso, async () => {
+            const r = await pedir('confirmarMail', { ...acceso, mail: yo.mailPropuesto });
+            acceso.token = r.token;
+            recordar({ id, persona: r.persona, nombre: r.nombre, token: r.token });
+            caja.replaceChildren(h('p', { class: 'verde' }, 'Tu mail se actualizó. El link anterior ya no sirve.'));
+          })
+        }, 'Es mi mail, confirmar'),
+        enlace('Rechazar', (ev) => ejecutar(ev.currentTarget, aviso, async () => {
+          await pedir('rechazarMail', acceso);
+          caja.remove();
+        }))),
+      aviso);
+    return caja;
   }
 
   mostrarNavidad('Hola, ' + yo.nombre, `${yo.evento.nombre}, organizado por ${yo.organizador}.`,
     yo.reinicio ? h('p', { class: 'ambar' }, `Tu acceso se reinició el ${fechaCorta(yo.reinicio)} a las ${yo.reinicio.slice(11)}. Si no lo pediste, consultale a quien organiza.`) : null,
+    yo.mailPropuesto ? avisoMail() : null,
     h('div', {}, datosEvento(yo.evento), calendario(yo.evento)),
-    h('section', {}, h('h2', {}, 'Tu regalo'), zonaRegalo(yo, false)),
-    h('section', {},
-      h('h2', {}, 'Tu lista de deseos'),
-      h('p', { class: 'suave' }, 'Dejá algunas pistas para quien te regala. Todo es opcional.'),
-      listaDe(yo)),
-    yo.puedeSumarHijos ? zonaHijos() : null,
-    yo.aCargo.map((n) => h('section', {},
-      h('h2', {}, 'Gestionás a ' + n.nombre),
-      zonaRegalo(n, true),
-      h('h3', { style: 'margin: 28px 0 14px' }, 'Lista de deseos de ' + n.nombre),
-      listaDe(n))),
+    h('section', {}, barra, paneles),
     h('section', { class: 'acciones' },
       enlace('Cambiar de persona', () => ir(`#/g/${id}/elegir`)),
       enlace('Salir', () => {

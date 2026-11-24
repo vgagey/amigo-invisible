@@ -2,7 +2,11 @@
 :root { --pino: #0f766e; --champagne: #e9c77b; }
 .navidad { position: relative; overflow: hidden; background: #fff; border-bottom: 1px solid var(--linea-suave); }
 .navidad::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: linear-gradient(90deg, var(--pino), var(--champagne)); }
-.navidad .barra, .navidad .heroe, .navidad .titular { width: 100%; max-width: 1120px; margin: 0 auto; padding-left: 24px; padding-right: 24px; }
+.navidad .barra, .navidad .heroe, .navidad .titular { width: 100%; max-width: 688px; margin: 0 auto; padding-left: 24px; padding-right: 24px; }
+.navidad:has(.heroe) .barra, .navidad .heroe { max-width: 1120px; }
+/* Portada y formulario comparten el mismo eje. */
+.navidad:has(.heroe) + .angosto { max-width: 1120px; }
+.navidad:has(.heroe) + .angosto > * { max-width: 640px; }
 .navidad .barra { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px 24px; padding-top: 16px; }
 .navidad .barra > a:not(.marca) { font-size: 14px; }
 .navidad .marca { position: relative; }
@@ -10,25 +14,31 @@
 .navidad .destellos svg { width: 60px; height: 60px; }
 .navidad .heroe { display: flex; flex-wrap: wrap; align-items: center; gap: 40px; padding-top: 56px; padding-bottom: 64px; }
 .navidad .heroe > * { flex: 1 1 300px; min-width: 0; }
-.navidad .heroe h1 { font-size: clamp(34px, 4.600vw, 52px); line-height: 1.1; letter-spacing: -1px; }
+.navidad .heroe h1 { font-size: clamp(32px, 4.600vw, 48px); line-height: 1.1; letter-spacing: -1px; }
 .navidad .heroe p { color: var(--suave); font-size: 18px; max-width: 26em; margin: 0 0 24px; }
-.navidad .heroe .etiqueta { color: var(--pino); font-size: 15px; margin-bottom: 14px; }
-.navidad .portada svg { display: block; width: 100%; max-width: 360px; margin: 0 auto; }
+.navidad .heroe .etiqueta { color: var(--pino); font-size: 16px; margin-bottom: 12px; }
+.navidad .portada svg { display: block; width: 100%; max-width: 320px; margin: 0 auto; }
 .navidad .titular { padding-top: 32px; padding-bottom: 36px; }
 .navidad .titular p { color: var(--suave); margin: 0; }
-.invitar { background: linear-gradient(140deg, #f1faf8, #fffaf0); border-color: var(--champagne); }
-.sello { position: relative; overflow: hidden; border: 2px solid transparent; border-radius: 16px; padding: 36px 28px; background: linear-gradient(#fff, #fff) padding-box, linear-gradient(135deg, var(--pino), var(--champagne)) border-box; display: flex; flex-direction: column; align-items: center; gap: 20px; text-align: center; }
+.invitar { align-self: flex-start; background: linear-gradient(140deg, #f1faf8, #fffaf0); border-color: var(--champagne); }
+.sello { position: relative; overflow: hidden; border: 2px solid transparent; border-radius: var(--radio-tarjeta); padding: 36px 16px; background: linear-gradient(#fff, #fff) padding-box, linear-gradient(135deg, var(--pino), var(--champagne)) border-box; display: flex; flex-direction: column; align-items: center; gap: 20px; text-align: center; }
 .sello .lazo svg { display: block; width: 180px; height: 120px; }
 .sello .cinta { stroke-dasharray: 100; }
-.sello.abierto .cinta { animation: abrir .7s ease-in forwards; }
+.sello.abierto .cinta { animation: abrir 1s ease-in-out forwards; }
 .sello p { margin: 0; }
 .sello .regalo { width: 100%; }
 .sello button { align-self: center; }
 .sello .icono svg { width: 18px; height: 18px; }
-.sello .encender { display: inline-flex; align-items: center; gap: 10px; }
-.sello .encender .icono { color: #7a4a00; }
+.sello .encender { display: inline-flex; align-items: center; gap: 8px; padding: 9px 16px; white-space: nowrap; }
+.sello .encender .icono { color: inherit; }
+@media (max-width: 400px) { .sello .encender { padding: 9px 12px; font-size: 14px; } }
+@media (max-width: 345px) { .sello .encender { white-space: normal; } }
 @keyframes abrir { to { stroke-dashoffset: -100; } }
 .rafaga { position: absolute; inset: 0; pointer-events: none; color: var(--champagne); }
-.rafaga .icono { position: absolute; left: 50%; top: 45%; animation: destello 1s ease-out forwards; }
+.rafaga .icono { position: absolute; left: 50%; top: 45%; animation: destello 1.400s ease-out forwards; }
 @keyframes destello { from { transform: translate(-50%, -50%) scale(.3); opacity: 1; } to { transform: translate(calc(-50% + var(--x)), calc(-50% + var(--y))) scale(1); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .sello.abierto .cinta { animation: none; } .rafaga { display: none; } }
+@media (max-width: 860px) {
+  .navidad .heroe { gap: 20px; padding-top: 28px; padding-bottom: 36px; }
+  .navidad .portada svg { max-width: 164px; }
+}

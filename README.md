@@ -1,11 +1,11 @@
-# Yori
+# yori
 
 Inteligencia que conecta momentos. Powered by GIWA.
 
 Primera experiencia: Sorteo Navideño, con Amigo Invisible. El sorteo es un algoritmo, no usa IA.
 
 - `docs/`: pantallas (GitHub Pages).
-  - `marca.js`: logo, lema e íconos generales de Yori.
+  - `marca.js`: logo, lema e íconos generales de yori.
   - `navidad/`: textos, ilustraciones y colores de la experiencia. Con `decoracion: false` en `tema.js` se quitan los adornos.
 - `apps-script/`: datos, sorteo y mails (Google Apps Script).
 - `pruebas/`: pruebas y servidor local. No envía mails reales.
@@ -45,7 +45,7 @@ La app queda en http://localhost:4173 y los mails simulados en http://localhost:
 ## Límites
 - Un Gmail común envía a unos 100 destinatarios por día.
 - 40 personas por sorteo, 3 sorteos por día por mail y 30 por día en total.
-- Cada sorteo se borra 30 días después del evento.
+- La fila de cada sorteo se elimina de la planilla 30 días después del evento. El historial de la planilla y los mails enviados no se borran.
 - Quien organiza carga mail, teléfono o los dos. Con mail, la app envía a cada persona su link y un PIN de 6 números. Sin mail, la persona escribe su teléfono y su mail, y valida un PIN de 6 números, que vence en 30 minutos y se anula después de 5 intentos fallidos. Un nombre validado queda cerrado y un mail valida un solo nombre por sorteo.
 - Quien organiza ve con qué mail entró cada persona y puede liberar un nombre. El acceso de emergencia al sorteo completo exige un PIN que llega a su mail.
 - Las parejas no se leen a simple vista en la planilla, pero no están cifradas.
