@@ -1,2 +1,2 @@
 // Dirección de la implementación de Apps Script (termina en /exec). Ver README.md
-const API_URL = location.hostname === 'localhost' ? '/api' : 'PEGAR_ACA_LA_URL_DE_APPS_SCRIPT';
+const API_URL = location.hostname === 'localhost' ? '/api' : 'https://script.google.com/macros/s/AKfycbxNP658xMJHQS9fkon1e2XUiQxmOhDDBK8sMzX7pg4Rxg_2HyLAabGunQf54xghHWY/exec';
