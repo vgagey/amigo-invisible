@@ -41,6 +41,11 @@ function dibujo(clase, svg) {
 }
 const icono = (nombre) => dibujo('icono', ICONOS[nombre]);
 const marca = () => h('a', { class: 'marca', href: '#/' }, dibujo('', MARCA.simbolo), MARCA.nombre);
+const marcaNavidad = () => {
+  const el = marca();
+  if (NAVIDAD.decoracion) el.append(dibujo('destellos', NAVIDAD.destellos));
+  return el;
+};
 const pie = () => h('footer', { class: 'pie' }, MARCA.firma);
 
 function montar(...partes) {
@@ -57,8 +62,7 @@ function mostrar(...hijos) {
 function mostrarNavidad(titulo, bajada, ...hijos) {
   montar(
     h('header', { class: 'navidad' },
-      NAVIDAD.decoracion ? dibujo('luces', NAVIDAD.luces) : null,
-      h('div', { class: 'barra' }, marca()),
+      h('div', { class: 'barra' }, marcaNavidad()),
       h('div', { class: 'titular' }, h('h1', {}, titulo), bajada ? h('p', {}, bajada) : null)),
     h('main', { class: 'angosto' }, hijos), pie());
 }
@@ -195,7 +199,14 @@ function cargando() { mostrar(h('p', { class: 'suave' }, 'Cargando…')); }
 
 /* ---------- Portal ---------- */
 
-const ARCOS_PORTAL = '<svg viewBox="0 0 200 260" aria-hidden="true"><g fill="none" stroke-width="18" stroke-linecap="round"><path d="M22 22A108 108 0 0 1 22 238" stroke="#EEF0F8"/><path d="M22 56A74 74 0 0 1 22 204" stroke="#EEF0F8"/><path d="M22 90A40 40 0 0 1 22 170" stroke="#EEF0F8"/><path d="M22 22A108 108 0 0 1 22 238" stroke="#0090FF" pathLength="100" stroke-dasharray="64 200"/><path d="M22 56A74 74 0 0 1 22 204" stroke="#A855F7" pathLength="100" stroke-dasharray="80 200"/><path d="M22 90A40 40 0 0 1 22 170" stroke="#0B1F4B" pathLength="100" stroke-dasharray="46 200"/></g></svg>';
+const ARCOS_PORTAL = '<svg viewBox="0 0 200 260" aria-hidden="true"><g fill="none" stroke-width="18" stroke-linecap="round"><path d="M22 22A108 108 0 0 1 22 238" stroke="#EEF0F8"/><path d="M22 56A74 74 0 0 1 22 204" stroke="#EEF0F8"/><path d="M22 90A40 40 0 0 1 22 170" stroke="#EEF0F8"/><path d="M22 22A108 108 0 0 1 22 238" stroke="#0090FF" pathLength="100" stroke-dasharray="64 200"/><path d="M22 56A74 74 0 0 1 22 204" stroke="#A855F7" pathLength="100" stroke-dasharray="80 200"/><path d="M22 90A40 40 0 0 1 22 170" stroke="#0F172A" pathLength="100" stroke-dasharray="46 200"/></g></svg>';
+
+const PROXIMAS = [
+  ['Cumpleaños', 'Regalos y festejo compartido.'],
+  ['Celebración familiar', 'Almuerzos y aniversarios.'],
+  ['Dinámica de equipo', 'Integración y reconocimiento.'],
+  ['Encuentro corporativo', 'Cierres de año y eventos.']
+];
 
 function pantallaInicio() {
   const paso = (nombre, titulo, texto) => h('div', { class: 'tarjeta' }, icono(nombre), h('h3', {}, titulo), h('p', { class: 'chico suave' }, texto));
@@ -221,6 +232,10 @@ function pantallaInicio() {
         h('div', {}, sesiones.map((s) => h('div', { class: 'renglon' },
           h('button', { type: 'button', class: 'persona', onclick: () => ir(`#/m/${s.id}/${s.persona}`) }, h('span', {}, s.nombre), icono('seguir'))))),
         h('p', { class: 'chico suave' }, 'Recordados en este dispositivo')) : null),
+    h('section', {},
+      h('h2', {}, 'Próximamente'),
+      h('div', { class: 'proximas' }, PROXIMAS.map(([nombre, texto]) =>
+        h('div', { class: 'tarjeta' }, h('h3', {}, nombre), h('p', { class: 'chico' }, texto))))),
     h('section', { class: 'pasos' },
       h('h2', {}, 'Cómo funciona'),
       h('div', { class: 'tarjetas' },
@@ -265,15 +280,14 @@ function pantallaNavidad() {
       enviar('Crear sorteo')));
   montar(
     h('header', { class: 'navidad' },
-      NAVIDAD.decoracion ? dibujo('luces', NAVIDAD.luces) : null,
-      h('div', { class: 'barra' }, marca(), h('a', { href: '#/' }, 'Volver al portal')),
+      h('div', { class: 'barra' }, marcaNavidad(), h('a', { href: '#/' }, 'Volver al portal')),
       h('div', { class: 'heroe' },
         h('div', {},
           h('p', { class: 'etiqueta' }, NAVIDAD.etiqueta),
           h('h1', {}, NAVIDAD.nombre),
           h('p', {}, NAVIDAD.frase),
           h('a', { class: 'boton', href: '#/navidad', onclick: (e) => { e.preventDefault(); crear.scrollIntoView({ behavior: 'smooth' }); crear.querySelector('input').focus({ preventScroll: true }); } }, 'Crear sorteo')),
-        NAVIDAD.decoracion ? dibujo('portada', NAVIDAD.portada) : null)),
+        NAVIDAD.decoracion ? dibujo('portada', NAVIDAD.lazo) : null)),
     crear, pie());
 }
 
@@ -310,6 +324,7 @@ async function pantallaAdmin(id, token, vigente) {
     const antes = s.estado;
     s = await pedirAdmin(accion, datos);
     if (!vigente()) return;
+    fallaMatriz = '';
     pintar(antes !== s.estado);
   }
 
@@ -331,6 +346,7 @@ async function pantallaAdmin(id, token, vigente) {
         eventoSinGuardar = '';
         if (s.evento.presupuesto !== null) form.presupuesto.value = s.evento.presupuesto.toFixed(2);
         aviso.decir('Guardado', 'verde');
+        pintarExclusiones();
         pintarResumen();
       } catch (error) {
         eventoSinGuardar = error.message;
@@ -349,8 +365,7 @@ async function pantallaAdmin(id, token, vigente) {
         opcion({ type: 'radio', name: 'modalidad', value: 'B', checked: e.modalidad === 'B' }, 'Adulto y niño: cada adulto regala a un adulto y a un niño. Los niños solo reciben')),
       aviso);
     if (abierto()) zonas.evento.replaceChildren(h('h1', {}, 'Evento'), form);
-    else zonas.evento.replaceChildren(h('h1', {}, 'Evento'), datosEvento(e),
-      h('p', { class: 'suave' }, e.modalidad === 'A' ? 'Cada uno con su grupo.' : 'Adulto y niño.'));
+    else zonas.evento.replaceChildren(h('h1', {}, 'Evento'), datosEvento(e));
   }
 
   function camposPersona(p) {
@@ -452,25 +467,122 @@ async function pantallaAdmin(id, token, vigente) {
       ] : []));
   }
 
+  /* Matriz: los toques se ven al instante y se guardan de a uno, en orden. Si una misma
+     celda cambia varias veces, solo se guarda el último valor. El estado se muestra
+     cuando no queda nada por guardar, así nunca corresponde a una versión vieja. */
+  const porGuardar = new Map(); // 'de>a' -> excluida
+  let enCurso = null; // [clave, excluida] que se está guardando
+  let guardado = Promise.resolve();
+  let guardando = false;
+  let fallaMatriz = '';
+  const clave = (de, a) => de + '>' + a;
+  const guardada = (de, a) => s.exclusiones.some((e) => e.de === de && e.a === a);
+  function excluida(de, a) {
+    const k = clave(de, a);
+    if (porGuardar.has(k)) return porGuardar.get(k);
+    if (enCurso && enCurso[0] === k) return enCurso[1];
+    return guardada(de, a);
+  }
+  /** Los cruces que la modalidad no usa nunca se sortean. */
+  const aplica = (de, a) => de.id !== a.id && (s.evento.modalidad === 'A' ? de.tipo === a.tipo : de.tipo === 'adulto');
+
+  function alternar(de, a, boton) {
+    const valor = !excluida(de.id, a.id);
+    porGuardar.set(clave(de.id, a.id), valor);
+    fallaMatriz = '';
+    pintarCelda(boton, de, a);
+    pintarEstadoMatriz();
+    if (!guardando) guardado = guardarMatriz();
+  }
+
+  async function guardarMatriz() {
+    guardando = true;
+    try {
+      while (porGuardar.size) {
+        const [k, valor] = porGuardar.entries().next().value;
+        porGuardar.delete(k);
+        const [de, a] = k.split('>');
+        if (valor === guardada(de, a)) continue;
+        enCurso = [k, valor];
+        s = await pedirAdmin(valor ? 'agregarExclusion' : 'quitarExclusion', { de, a });
+        enCurso = null;
+      }
+    } catch (error) {
+      enCurso = null;
+      porGuardar.clear();
+      fallaMatriz = error.message + ' Se muestra lo último guardado.';
+      try { s = await pedirAdmin('admin'); } catch { /* queda lo último recibido */ }
+    } finally {
+      guardando = false;
+      if (vigente()) {
+        if (fallaMatriz) pintarExclusiones(); else { pintarEstadoMatriz(); pintarResumen(); }
+      }
+    }
+  }
+
+  /** Espera a que la matriz termine de guardar; si algo falló, lo informa. */
+  async function matrizLista() {
+    await guardado;
+    if (fallaMatriz) throw new Error('Revisá las exclusiones: ' + fallaMatriz);
+  }
+
+  function pintarCelda(boton, de, a) {
+    const no = excluida(de.id, a.id);
+    boton.setAttribute('aria-pressed', no);
+    boton.setAttribute('aria-label', no ? `${de.nombre} no le regala a ${a.nombre}` : `${de.nombre} puede regalarle a ${a.nombre}`);
+    boton.textContent = no ? '✕' : '○';
+  }
+
+  const estadoMatriz = h('div', { role: 'status' });
+  function pintarEstadoMatriz() {
+    const cruces = s.personas.flatMap((de) => s.personas.filter((a) => aplica(de, a)).map((a) => [de, a]));
+    const n = cruces.filter(([de, a]) => excluida(de.id, a.id)).length;
+    const cuenta = n === 1 ? '1 exclusión activa' : `${n} exclusiones activas`;
+    const v = s.verificacion;
+    const [texto, clase] = fallaMatriz ? [fallaMatriz, 'rojo']
+      : guardando || porGuardar.size ? ['Verificando…', 'suave']
+        : !v ? ['', 'suave']
+          : v.ok ? ['Resoluble: el sorteo se puede hacer.', 'verde'] : ['Conflicto: ' + v.motivo, 'rojo'];
+    estadoMatriz.replaceChildren(h('p', { class: clase }, texto), h('p', { class: 'chico suave' }, cuenta));
+  }
+
   function pintarExclusiones() {
     const aviso = zonaAviso();
-    const personas = [['', 'Elegir'], ...s.personas.map((p) => [p.id, p.nombre])];
-    zonas.exclusiones.replaceChildren(
+    const ejemplo = h('div', { class: 'ejemplo' });
+    const filas = s.personas.filter((de) => s.personas.some((a) => aplica(de, a)));
+    const celda = (de, a) => {
+      if (!aplica(de, a)) return h('td', {}, h('span', { 'aria-label': 'No corresponde' }, '—'));
+      if (!abierto()) return h('td', {}, h('span', {}, guardada(de.id, a.id) ? '✕' : '○'));
+      const boton = h('button', { type: 'button', onclick: () => alternar(de, a, boton) });
+      pintarCelda(boton, de, a);
+      return h('td', {}, boton);
+    };
+    zonas.exclusiones.replaceChildren(...[
       h('h1', {}, 'Exclusiones'),
-      h('p', { class: 'suave' }, 'Opcional: elegí quién no le regala a quién.'),
-      ...(s.exclusiones.length ? [h('ul', {}, s.exclusiones.map((e) => h('li', {}, h('div', { class: 'fila' },
-        h('p', {}, `${nombreDe(e.de)} no le regala a ${nombreDe(e.a)}`),
-        abierto() ? enlace('Quitar', (ev) => ejecutar(ev.target, aviso, () => cambiar('quitarExclusion', e))) : null))))] : []),
-      ...(abierto() ? [formulario(aviso, (d) => {
-        if (!d.de || !d.a) throw new Error('Elegí a las dos personas.');
-        return cambiar('agregarExclusion', { de: d.de, a: d.a, ambos: d.ambos === 'on' });
-      },
-        h('div', { class: 'dos' },
-          campo('Persona', selector({ name: 'de' }, personas, '')),
-          campo('No le regala a', selector({ name: 'a' }, personas, ''))),
-        opcion({ type: 'checkbox', name: 'ambos', checked: true }, 'En los dos sentidos'),
-        aviso,
-        h('button', { type: 'submit', class: 'segundo' }, 'Agregar exclusión'))] : []));
+      h('p', { class: 'suave' }, !filas.length ? 'Agregá personas para ver los cruces.' : abierto() ? 'Opcional. La fila regala, la columna recibe. Tocá un cruce para bloquearlo o permitirlo.' : 'El sorteo está hecho: las exclusiones quedan fijas.'),
+      filas.length ? h('p', { class: 'chico suave' }, '○ permitido · ✕ excluido · — no corresponde') : null,
+      filas.length ? h('div', { class: 'matriz', tabindex: 0, role: 'region', 'aria-label': 'Matriz de exclusiones' }, h('table', {},
+        h('thead', {}, h('tr', {}, h('th', { scope: 'col' }, 'Regala'), s.personas.map((a) => h('th', { scope: 'col' }, a.nombre)))),
+        h('tbody', {}, filas.map((de) => h('tr', {}, h('th', { scope: 'row' }, de.nombre), s.personas.map((a) => celda(de, a))))))) : null,
+      abierto() && filas.length ? estadoMatriz : null,
+      aviso,
+      abierto() && filas.length ? h('div', { class: 'acciones' },
+        h('button', {
+          type: 'button', class: 'segundo', onclick: (ev) => ejecutar(ev.currentTarget, aviso, async () => {
+            ejemplo.replaceChildren();
+            await matrizLista();
+            const lista = await pedirAdmin('simular');
+            ejemplo.replaceChildren(
+              h('p', { class: 'ambar' }, 'Esto es un ejemplo. El sorteo real va a ser otro.'),
+              ...lista.map((x) => h('div', { class: 'renglon' }, h('span', {}, x.nombre), h('span', {}, 'le regala a ' + x.regalaA.join(' y ')))));
+          })
+        }, 'Simular'),
+        enlace('Limpiar exclusiones', (ev) => {
+          if (!confirm('¿Quitar todas las exclusiones?')) return;
+          ejecutar(ev.currentTarget, aviso, async () => { await matrizLista(); await cambiar('limpiarExclusiones'); });
+        })) : null,
+      ejemplo].filter(Boolean));
+    pintarEstadoMatriz();
   }
 
   /** Avance según el momento: antes del sorteo, quién entró; después, quién vio su regalo. */
@@ -478,7 +590,7 @@ async function pantallaAdmin(id, token, vigente) {
     const base = s.personas.filter((p) => abierto() ? !p.responsable : regala(p));
     const hecho = (p) => abierto() ? p.validada : p.vio;
     const contar = (lista) => [lista.filter(hecho).length, lista.length];
-    const filas = [['En total', '#0B1F4B', contar(base)]];
+    const filas = [['En total', '#0F172A', contar(base)]];
     if (base.some((p) => p.tipo === 'nino')) {
       filas.push(['Adultos', '#0090FF', contar(base.filter((p) => p.tipo === 'adulto'))]);
       filas.push(['Niños', '#A855F7', contar(base.filter((p) => p.tipo === 'nino'))]);
@@ -509,6 +621,7 @@ async function pantallaAdmin(id, token, vigente) {
     const sortear = h('button', {
       type: 'button', onclick: (ev) => ejecutar(ev.currentTarget, aviso, async () => {
         await cola;
+        await matrizLista();
         if (eventoSinGuardar) throw new Error('Revisá los datos del evento: ' + eventoSinGuardar);
         const partes = ['¿Hacer el sorteo? Después las personas quedan fijas.'];
         if (conMail) partes.push(`Se ${conMail === 1 ? 'envía 1 mail' : `envían ${conMail} mails`}.`);
@@ -603,12 +716,25 @@ async function pantallaAdmin(id, token, vigente) {
       ? `${s.evento.nombre}: entrá, tocá tu nombre y validá tu PIN. ${url}`
       : `¡Ya se hizo el sorteo de ${s.evento.nombre}! Entrá para ver a quién le regalás. ${url}`;
     return h('div', { class: 'tarjeta invitar' },
-      NAVIDAD.decoracion ? dibujo('regalo-dibujo', NAVIDAD.regalo) : null,
       h('h3', {}, abierto() ? 'Invitá a tu grupo' : 'Avisá que ya se sorteó'),
       pendientes ? h('button', { type: 'button', onclick: (ev) => ejecutar(ev.currentTarget, aviso, () => cambiar('invitar')) }, pendientes === 1 ? 'Enviar 1 invitación' : `Enviar ${pendientes} invitaciones`) : null,
       h('p', { class: 'chico' }, 'El link del grupo no revela nada del sorteo.'),
       h('div', { class: 'acciones' },
         h('a', { href: 'https://wa.me/?text=' + encodeURIComponent(texto), target: '_blank', rel: 'noopener' }, 'Compartir por WhatsApp'),
+        enlace('Copiar invitación', async () => {
+          const e = s.evento;
+          const invitacion = [
+            e.nombre,
+            'Fecha: ' + fechaCorta(e.fecha),
+            e.presupuesto !== null ? 'Presupuesto: ' + importe(e.presupuesto) : '',
+            'Modalidad: Amigo Invisible, ' + (e.modalidad === 'A' ? 'cada uno con su grupo' : 'adulto y niño'),
+            'Personas: ' + s.personas.length,
+            e.mensaje,
+            abierto() ? 'Entrá, tocá tu nombre y validá tu PIN:' : 'Ya se hizo el sorteo. Entrá para ver a quién le regalás:',
+            url
+          ].filter(Boolean).join('\n');
+          try { await navigator.clipboard.writeText(invitacion); aviso.decir('Invitación copiada'); } catch { aviso.decir(invitacion, 'mensaje'); }
+        }),
         enlace('Copiar link', async () => {
           try { await navigator.clipboard.writeText(url); aviso.decir('Link copiado'); } catch { aviso.decir(url); }
         })),
@@ -714,8 +840,99 @@ function datosEvento(e) {
   return h('div', {},
     h('dl', {},
       h('dt', {}, 'Fecha'), h('dd', {}, fechaCorta(e.fecha)),
-      ...(e.presupuesto !== null ? [h('dt', {}, 'Presupuesto'), h('dd', {}, importe(e.presupuesto))] : [])),
+      ...(e.presupuesto !== null ? [h('dt', {}, 'Presupuesto'), h('dd', {}, importe(e.presupuesto))] : []),
+      ...(e.modalidad ? [h('dt', {}, 'Modalidad'), h('dd', {}, 'Amigo Invisible, ' + (e.modalidad === 'A' ? 'cada uno con su grupo' : 'adulto y niño'))] : [])),
     e.mensaje ? h('p', { class: 'mensaje' }, e.mensaje) : null);
+}
+
+/** Día completo, sin datos privados ni links de acceso. */
+function calendario(e) {
+  const dia = e.fecha.replaceAll('-', '');
+  const fin = new Date(Date.parse(e.fecha) + 86400000).toISOString().slice(0, 10).replaceAll('-', '');
+  const google = 'https://calendar.google.com/calendar/render?action=TEMPLATE&text=' + encodeURIComponent(e.nombre) + `&dates=${dia}/${fin}`;
+  const limpio = e.nombre.replace(/([\\;,])/g, '\\$1').replace(/\s+/g, ' ');
+  const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Yori//ES', 'BEGIN:VEVENT', `UID:${dia}-${encodeURIComponent(e.nombre).slice(0, 30)}@yori`,
+    `DTSTAMP:${dia}T000000Z`, `DTSTART;VALUE=DATE:${dia}`, `DTEND;VALUE=DATE:${fin}`, `SUMMARY:${limpio}`, 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
+  return h('div', { class: 'acciones' },
+    h('span', { class: 'chico suave' }, 'Agregar al calendario:'),
+    h('a', { class: 'chico', href: google, target: '_blank', rel: 'noopener' }, 'Google'),
+    h('a', { class: 'chico', href: 'data:text/calendar;charset=utf-8,' + encodeURIComponent(ics), download: 'encuentro.ics' }, 'Apple'));
+}
+
+/* ---------- Lista de deseos ---------- */
+
+const TALLES = [['superior', 'Remeras, camisas'], ['inferior', 'Pantalones'], ['calzado', 'Calzado'], ['otro', 'Otro talle o característica']];
+const GUSTOS = ['Decoración', 'Tecnología', 'Libros', 'Café', 'Belleza', 'Deportes', 'Plantas', 'Experiencias'];
+const TEXTOS = [
+  ['preferencias', 'Gustos y preferencias', 'Me gustan los colores neutros, los aromas cítricos y las cosas prácticas'],
+  ['recibir', 'Cosas que me gustaría recibir', 'Una taza linda, una agenda, una planta'],
+  ['evitar', 'Cosas que prefiero evitar', 'Perfumes dulces, ropa estampada'],
+  ['pistas', 'Pistas adicionales', 'Cualquier detalle que ayude a elegir']
+];
+const MAX_TEXTO = 500;
+
+/** Tolera listas vacías, incompletas o con el formato de texto anterior. */
+function leerPerfil(x) {
+  const o = typeof x === 'string' ? { recibir: x } : x && typeof x === 'object' ? x : {};
+  const t = (v) => typeof v === 'string' ? v : '';
+  return {
+    id: t(o.id), nombre: t(o.nombre), compartir: o.compartir !== false,
+    talles: Object.fromEntries(TALLES.map(([k]) => [k, t(o.talles?.[k])])),
+    gustos: Array.isArray(o.gustos) ? o.gustos.filter((g) => typeof g === 'string') : [],
+    ...Object.fromEntries(TEXTOS.map(([k]) => [k, t(o[k])])),
+    hijos: Array.isArray(o.hijos) ? o.hijos.map(leerPerfil) : []
+  };
+}
+
+/** Formulario de un perfil: bloques plegados, todos opcionales. */
+function formularioPerfil(perfil, editable, alGuardar, extra) {
+  const aviso = zonaAviso();
+  const bloque = (titulo, ...hijos) => h('details', { class: 'bloque' }, h('summary', {}, titulo), h('div', {}, hijos));
+  const propios = perfil.gustos.filter((g) => !GUSTOS.includes(g));
+  const cuenta = h('p', { class: 'chico suave' });
+  const form = formulario(aviso, async () => {
+    const d = new FormData(form);
+    const v = (k) => String(d.get(k) || '').trim();
+    const otros = v('otros').split(',').map((g) => g.trim()).filter(Boolean);
+    await alGuardar({
+      compartir: d.get('compartir') === 'on',
+      talles: Object.fromEntries(TALLES.map(([k]) => [k, v('talle-' + k)])),
+      gustos: [...new Set([...d.getAll('gusto'), ...otros])],
+      ...Object.fromEntries(TEXTOS.map(([k]) => [k, v(k)]))
+    }, v('nombre'));
+    aviso.decir('Guardado', 'verde');
+  },
+    extra,
+    bloque('Talles', h('div', { class: 'dos' }, TALLES.map(([k, texto]) => campo(texto, h('input', { name: 'talle-' + k, maxlength: 30, autocomplete: 'off', value: perfil.talles[k] }))))),
+    bloque('Qué cosas me gustan',
+      h('div', { class: 'gustos' }, GUSTOS.map((g) => opcion({ type: 'checkbox', name: 'gusto', value: g, checked: perfil.gustos.includes(g) }, g))),
+      campo('Otros, separados por coma', h('input', { name: 'otros', maxlength: 200, autocomplete: 'off', value: propios.join(', ') }))),
+    TEXTOS.map(([k, texto, ayuda]) => bloque(texto, h('textarea', { name: k, maxlength: MAX_TEXTO, 'aria-label': texto, placeholder: ayuda, value: perfil[k] }))),
+    h('div', { class: 'cierre' },
+      opcion({ type: 'checkbox', name: 'compartir', checked: perfil.compartir }, 'Compartir con quien me regala'),
+      cuenta, aviso,
+      editable ? enviar('Guardar') : h('p', { class: 'suave' }, 'El encuentro ya pasó: la lista no se puede editar.')));
+  const contar = () => {
+    const n = TEXTOS.reduce((suma, [k]) => suma + form.elements[k].value.trim().length, 0);
+    cuenta.replaceChildren(...h('p', {}, `Textos: ${n} de ${MAX_TEXTO} caracteres`).childNodes);
+    cuenta.className = 'chico ' + (n > MAX_TEXTO ? 'rojo' : 'suave');
+  };
+  form.addEventListener('input', contar);
+  contar();
+  if (!editable) for (const el of form.elements) el.disabled = true;
+  return form;
+}
+
+/** Lo que ve quien regala. */
+function verPistas(pistas) {
+  if (!pistas.length) return h('p', { class: 'suave' }, 'Todavía no dejó pistas. Podés volver más tarde o sorprender con algo simple.');
+  return h('div', { class: 'pistas' }, pistas.map((x) => h('div', {},
+    x.hijo ? h('h3', { style: 'margin-top: 24px' }, 'Para ' + x.hijo + ', a su cargo') : null,
+    h('dl', {},
+      x.talles ? [h('dt', {}, 'Talles'), h('dd', {}, TALLES.filter(([k]) => x.talles[k]).map(([k, t]) => `${t}: ${x.talles[k]}`).join('\n'))] : [],
+      x.gustos ? [h('dt', {}, 'Le gusta'), h('dd', {}, x.gustos.join(', '))] : [],
+      [['preferencias', 'Preferencias'], ['recibir', 'Ideas de regalos'], ['evitar', 'Prefiere evitar'], ['pistas', 'Pistas']]
+        .map(([k, t]) => x[k] ? [h('dt', {}, t), h('dd', {}, x[k])] : [])))));
 }
 
 async function pantallaRegalo(id, persona, vigente) {
@@ -738,19 +955,24 @@ async function pantallaRegalo(id, persona, vigente) {
     const aviso = zonaAviso();
     function oculto() {
       aviso.decir('');
-      zona.replaceChildren(
-        h('p', { class: 'suave' }, esOtro ? `Tocá para ver a quién le regala ${quien.nombre}.` : 'Tocá para ver a quién le regalás. Que nadie mire tu pantalla.'),
+      const sello = h('div', { class: 'sello' },
+        NAVIDAD.decoracion ? dibujo('lazo', NAVIDAD.lazo) : null,
+        h('p', { class: 'suave' }, esOtro ? `Acá está a quién le regala ${quien.nombre}.` : 'Tu asignación está lista. Que nadie mire tu pantalla.'),
         aviso,
         h('button', {
-          type: 'button', onclick: (ev) => ejecutar(ev.currentTarget, aviso, async () => {
+          type: 'button', class: 'encender', onclick: (ev) => ejecutar(ev.currentTarget, aviso, async () => {
             const lista = await pedir('descubrir', { ...acceso, persona: quien.persona });
-            zona.replaceChildren(
+            sello.classList.add('abierto');
+            if (NAVIDAD.decoracion && !matchMedia('(prefers-reduced-motion: reduce)').matches) await new Promise((listo) => setTimeout(listo, 700));
+            zona.replaceChildren(h('div', { class: 'sello' },
+              NAVIDAD.decoracion ? rafaga() : null,
               ...lista.map((r) => h('div', { class: 'regalo' },
                 h('p', { class: 'nombre' }, r.nombre),
-                r.deseos ? h('p', { class: 'mensaje' }, r.deseos) : h('p', { class: 'suave' }, 'Todavía no cargó su lista de deseos.'))),
-              h('button', { type: 'button', class: 'segundo', onclick: oculto }, 'Ocultar'));
+                verPistas(r.pistas || []))),
+              h('button', { type: 'button', class: 'segundo', onclick: oculto }, 'Ocultar')));
           })
-        }, 'Descubrir'));
+        }, icono('destello'), 'Tocar para encender el encuentro'));
+      zona.replaceChildren(sello);
     }
     if (quien.regala) oculto();
     else zona.append(h('p', { class: 'suave' }, !yo.sorteado
@@ -759,26 +981,80 @@ async function pantallaRegalo(id, persona, vigente) {
     return zona;
   }
 
-  function formularioDeseos(quien, etiqueta) {
-    const aviso = zonaAviso();
-    return formulario(aviso, async (d) => {
-      await pedir('guardarDeseos', { ...acceso, persona: quien.persona, deseos: d.deseos });
-      aviso.decir('Guardado', 'verde');
-    },
-      h('textarea', { name: 'deseos', maxlength: 500, 'aria-label': etiqueta, value: quien.deseos }),
-      aviso, enviar('Guardar lista'));
+  function rafaga() {
+    const el = h('div', { class: 'rafaga' });
+    for (let i = 0; i < 10; i++) {
+      const d = icono('destello');
+      const angulo = i / 10 * Math.PI * 2;
+      d.style.setProperty('--x', Math.round(Math.cos(angulo) * 150) + 'px');
+      d.style.setProperty('--y', Math.round(Math.sin(angulo) * 90) + 'px');
+      el.append(d);
+    }
+    return el;
+  }
+
+  /** Perfil propio o de un niño a cargo que participa. */
+  function listaDe(quien) {
+    const lista = leerPerfil(quien.lista || quien.deseos);
+    return h('div', { class: 'perfil' }, formularioPerfil(lista, yo.editable !== false, (datos) =>
+      pedir('guardarPerfil', { ...acceso, persona: quien.persona, datos })));
+  }
+
+  /** Hijos que no participan: viven en la lista de su adulto y no entran al sorteo. */
+  function zonaHijos() {
+    const editable = yo.editable !== false;
+    const perfiles = h('div');
+    const agregar = h('button', {
+      type: 'button', class: 'segundo', onclick: () => {
+        if (perfiles.querySelector('[data-nuevo]')) return perfiles.querySelector('[data-nuevo] input').focus();
+        const caja = perfilHijo(leerPerfil({}));
+        perfiles.append(caja);
+        caja.querySelector('input').focus();
+      }
+    }, 'Agregar hijo/a');
+    function perfilHijo(hijo) {
+      let idPerfil = hijo.id || 'nuevo';
+      const aviso = zonaAviso();
+      const titulo = h('summary', {}, hijo.nombre || 'Nuevo perfil');
+      const quitar = enlace('Quitar perfil', (ev) => {
+        if (idPerfil === 'nuevo') return caja.remove();
+        if (!confirm('¿Quitar este perfil y sus deseos?')) return;
+        ejecutar(ev.currentTarget, aviso, async () => {
+          await pedir('quitarPerfil', { ...acceso, perfil: idPerfil });
+          caja.remove();
+        });
+      });
+      const caja = h('details', { class: 'bloque perfil', open: idPerfil === 'nuevo', 'data-nuevo': idPerfil === 'nuevo' }, titulo,
+        h('div', {}, formularioPerfil(hijo, editable, async (datos, nombre) => {
+          const r = await pedir('guardarPerfil', { ...acceso, perfil: idPerfil, nombre, datos });
+          idPerfil = r.perfil;
+          caja.removeAttribute('data-nuevo');
+          titulo.textContent = nombre;
+        }, h('div', { style: 'padding-bottom: 20px' }, campo('Nombre', h('input', { name: 'nombre', maxlength: 40, autocomplete: 'off', value: hijo.nombre })))),
+        editable ? quitar : null, aviso));
+      return caja;
+    }
+    perfiles.append(...leerPerfil(yo.lista).hijos.map(perfilHijo));
+    return h('section', {},
+      h('h2', {}, 'Hijos que no participan del sorteo'),
+      h('p', { class: 'suave' }, 'Si querés, dejá pistas para ellos. Las ve quien te regala a vos, solo si las compartís.'),
+      perfiles, editable ? agregar : null);
   }
 
   mostrarNavidad('Hola, ' + yo.nombre, `${yo.evento.nombre}, organizado por ${yo.organizador}.`,
     yo.reinicio ? h('p', { class: 'ambar' }, `Tu acceso se reinició el ${fechaCorta(yo.reinicio)} a las ${yo.reinicio.slice(11)}. Si no lo pediste, consultale a quien organiza.`) : null,
-    h('div', {}, h('h2', {}, 'Tu regalo'), zonaRegalo(yo, false)),
-    h('section', {}, h('h2', {}, 'Evento'), datosEvento(yo.evento)),
-    h('section', {}, h('h2', {}, 'Tu lista de deseos'), formularioDeseos(yo, 'Tu lista de deseos')),
+    h('div', {}, datosEvento(yo.evento), calendario(yo.evento)),
+    h('section', {}, h('h2', {}, 'Tu regalo'), zonaRegalo(yo, false)),
+    h('section', {},
+      h('h2', {}, 'Tu lista de deseos'),
+      h('p', { class: 'suave' }, 'Dejá algunas pistas para quien te regala. Todo es opcional.'),
+      listaDe(yo)),
+    yo.puedeSumarHijos ? zonaHijos() : null,
     yo.aCargo.map((n) => h('section', {},
       h('h2', {}, 'Gestionás a ' + n.nombre),
       zonaRegalo(n, true),
       h('h3', { style: 'margin: 28px 0 14px' }, 'Lista de deseos de ' + n.nombre),
-      formularioDeseos(n, 'Lista de deseos de ' + n.nombre))),
+      listaDe(n))),
     h('section', { class: 'acciones' },
       enlace('Cambiar de persona', () => ir(`#/g/${id}/elegir`)),
       enlace('Salir', () => {

@@ -254,6 +254,188 @@ test('invitación: link y PIN al mail que cargó quien organiza', () => {
   assert.match(s.entrar('Dani', '', s.pinDe('dani2@x.com')).error, /15 minutos/);
 });
 
+const perfil = (x) => ({ compartir: true, talles: { superior: 'M' }, gustos: ['Libros', 'Cerámica'], preferencias: 'Colores neutros', recibir: 'Una agenda', evitar: 'Chocolates', pistas: 'Zurda 🎁', ...x });
+const guardarPerfil = (g, acceso, datos, mas) => g.pedir({ accion: 'guardarPerfil', ...acceso, datos, ...mas });
+const fila = (g, id) => g.filas.find((f) => f[0] === id);
+const leerFila = (g, id) => JSON.parse(fila(g, id)[2]);
+const escribirFila = (g, id, cambio) => { const s = leerFila(g, id); cambio(s); fila(g, id)[2] = JSON.stringify(s); };
+/** Quien le regala a esa persona, con su acceso. */
+const quienRegalaA = (g, accesos, nombre) => Object.values(accesos).map((a) => g.pedir({ accion: 'descubrir', ...a }).datos).flat().find((t) => t.nombre === nombre);
+
+test('deseos: se guardan, editan y recuperan por bloque', () => {
+  const g = cargar('https://app/');
+  const s = armar(g, nombres('Ana', 'Beto', 'Caro'));
+  const acc = Object.fromEntries(['Ana', 'Beto', 'Caro'].map((n) => [n, s.validar(n)]));
+  const r = guardarPerfil(g, acc.Ana, perfil());
+  assert.ok(r.ok, r.error);
+  const guardado = leerFila(g, s.id).personas.find((p) => p.nombre === 'Ana').deseos;
+  assert.deepEqual([guardado.talles.superior, guardado.gustos, guardado.evitar], ['M', ['Libros', 'Cerámica'], 'Chocolates'], 'cada bloque en su campo');
+  guardarPerfil(g, acc.Ana, perfil({ evitar: '', gustos: [] }));
+  const l = g.pedir({ accion: 'yo', ...acc.Ana }).datos.lista;
+  assert.deepEqual([l.evitar, l.gustos, l.recibir, l.talles], ['', [], 'Una agenda', { superior: 'M', inferior: '', calzado: '', otro: '' }]);
+  assert.ok(!JSON.stringify(s.ad('admin').datos).includes('Una agenda'), 'el panel no recibe listas');
+  s.ad('sortear');
+  const ve = quienRegalaA(g, acc, 'Ana');
+  assert.deepEqual(ve.pistas, [{ hijo: '', talles: { superior: 'M' }, preferencias: 'Colores neutros', recibir: 'Una agenda', pistas: 'Zurda 🎁' }], 'solo bloques completos');
+  guardarPerfil(g, acc.Ana, perfil({ compartir: false }));
+  assert.ok(!JSON.stringify(quienRegalaA(g, acc, 'Ana')).includes('agenda'), 'sin compartir, el servidor no lo envía');
+  assert.equal(g.pedir({ accion: 'yo', ...acc.Ana }).datos.lista.recibir, 'Una agenda', 'pero su dueña lo conserva');
+  const emer = (s.ad('pedirEmergencia'), s.ad('verSorteo', { pin: s.pinDe('org@x.com') }));
+  assert.ok(emer.ok && !JSON.stringify(emer).includes('agenda'), 'la emergencia no muestra listas');
+});
+
+test('deseos: formato anterior, vacíos e incompletos', () => {
+  const g = cargar('https://app/');
+  const s = armar(g, nombres('Ana', 'Beto', 'Caro'));
+  const acc = Object.fromEntries(['Ana', 'Beto', 'Caro'].map((n) => [n, s.validar(n)]));
+  s.ad('sortear');
+  const raros = [undefined, null, '', 0, true, [], {}, { gustos: 'x', talles: null, hijos: 'x' }, { hijos: [null, {}, { id: 'h1' }], gustos: [null, 3, {}] }, { compartir: 'no', recibir: { a: 1 } }];
+  for (const raro of raros) {
+    escribirFila(g, s.id, (d) => { const p = d.personas.find((x) => x.nombre === 'Ana'); if (raro === undefined) delete p.deseos; else p.deseos = raro; });
+    const yo = g.pedir({ accion: 'yo', ...acc.Ana });
+    assert.ok(yo.ok, JSON.stringify(raro));
+    assert.ok(Array.isArray(yo.datos.lista.gustos) && Array.isArray(yo.datos.lista.hijos));
+    assert.ok(Array.isArray(quienRegalaA(g, acc, 'Ana').pistas), JSON.stringify(raro));
+  }
+  escribirFila(g, s.id, (d) => { d.personas.find((x) => x.nombre === 'Ana').deseos = 'Un libro de ñandúes'; });
+  const yo = g.pedir({ accion: 'yo', ...acc.Ana }).datos;
+  assert.deepEqual([yo.deseos, yo.lista.recibir], ['Un libro de ñandúes', 'Un libro de ñandúes']);
+  const ve = quienRegalaA(g, acc, 'Ana');
+  assert.deepEqual([ve.deseos, ve.pistas], ['Un libro de ñandúes', [{ hijo: '', recibir: 'Un libro de ñandúes' }]]);
+  assert.ok(g.pedir({ accion: 'guardarDeseos', ...acc.Ana, deseos: 'Otro libro' }).ok, 'una página vieja sigue guardando sobre texto');
+  assert.ok(guardarPerfil(g, acc.Ana, perfil()).ok);
+  assert.match(g.pedir({ accion: 'guardarDeseos', ...acc.Ana, deseos: 'pisar' }).error, /Recargá/, 'pero no pisa la lista nueva');
+  assert.equal(g.pedir({ accion: 'yo', ...acc.Ana }).datos.lista.recibir, 'Una agenda');
+  for (const datos of [undefined, null, 'x', []]) assert.ok(guardarPerfil(g, acc.Beto, datos).ok, 'se puede guardar vacío');
+});
+
+test('deseos: límites sin perder lo guardado', () => {
+  const g = cargar('https://app/');
+  const s = armar(g, nombres('Ana', 'Beto', 'Caro'));
+  const ana = s.validar('Ana');
+  guardarPerfil(g, ana, perfil());
+  const antes = fila(g, s.id)[2];
+  for (const mal of [{ recibir: 'x'.repeat(501) }, { preferencias: 'x'.repeat(200), recibir: 'x'.repeat(200), evitar: 'x'.repeat(101), pistas: '' }, { talles: { calzado: 'x'.repeat(31) } }, { gustos: Array(13).fill('a') }, { gustos: ['x'.repeat(31)] }]) {
+    assert.equal(guardarPerfil(g, ana, perfil(mal)).ok, false);
+    assert.equal(fila(g, s.id)[2], antes, 'no cambia nada');
+  }
+  assert.ok(guardarPerfil(g, ana, perfil({ preferencias: '', recibir: 'x'.repeat(500), evitar: '', pistas: '' })).ok, 'justo en el límite');
+  escribirFila(g, s.id, (d) => { d.evento.fecha = '2020-01-01'; });
+  assert.match(guardarPerfil(g, ana, perfil()).error, /ya pasó/);
+  assert.equal(g.pedir({ accion: 'yo', ...ana }).datos.editable, false);
+});
+
+test('deseos: un sorteo lleno de listas igual sortea, valida y entra', () => {
+  const g = cargar('https://app/');
+  g.estado.cupo = 1e6;
+  const personas = Array.from({ length: 40 }, (_, i) => ({ nombre: 'Persona ' + i, correo: `persona${i}@ejemplo.com` }));
+  const s = armar(g, personas);
+  s.ad('invitar');
+  const pines = personas.map((p) => s.pinDe(p.correo));
+  const acc = personas.slice(0, 38).map((p, i) => ({ id: s.id, token: s.entrar(p.nombre, '', pines[i]).datos.token }));
+  const grande = perfil({ preferencias: 'a'.repeat(125), recibir: 'a'.repeat(125), evitar: 'a'.repeat(125), pistas: 'a'.repeat(125) });
+  let llenos = 0, rechazo = '';
+  for (const a of acc) { const r = guardarPerfil(g, a, grande); if (r.ok) llenos++; else rechazo = r.error; }
+  for (let i = 0; i < 5; i++) { const r = guardarPerfil(g, acc[0], grande, { perfil: 'nuevo', nombre: 'Hijo ' + i }); if (!r.ok) rechazo = r.error; }
+  assert.match(rechazo, /más espacio/);
+  assert.ok(llenos >= 25, 'listas completas que entran: ' + llenos);
+  console.log('    listas completas con 40 personas:', llenos, '· tamaño:', fila(g, s.id)[2].length);
+  assert.ok(s.ad('sortear').ok, 'sortea igual');
+  for (const i of [38, 39]) assert.ok(s.entrar(personas[i].nombre, '', s.pinDe(personas[i].correo)).ok, 'valida igual');
+  for (let i = 0; i < 10; i++) assert.ok(g.pedir({ accion: 'pedirLink', id: s.id, persona: s.por('Persona ' + i).id }).ok, 'reenvía links igual');
+  assert.ok(g.pedir({ accion: 'descubrir', ...acc[5] }).ok);
+});
+
+test('hijos que no participan: nunca entran al sorteo', () => {
+  const g = cargar('https://app/');
+  const s = armar(g, nombres('Ana', 'Beto', 'Caro'));
+  const acc = Object.fromEntries(['Ana', 'Beto', 'Caro'].map((n) => [n, s.validar(n)]));
+  guardarPerfil(g, acc.Ana, perfil({ recibir: 'Agenda de Ana' }));
+  const nuevo = (nombre, x) => guardarPerfil(g, acc.Ana, perfil({ gustos: [], talles: {}, preferencias: '', evitar: '', pistas: '', ...x }), { perfil: 'nuevo', nombre });
+  const emma = nuevo('Emma', { recibir: 'Muñeca' }), leo = nuevo('Leo', { recibir: 'Secreto de Leo', compartir: false });
+  assert.ok(emma.ok && leo.ok, emma.error || leo.error);
+  assert.equal(s.ad('admin').datos.personas.length, 3, 'no son participantes');
+  assert.equal(g.pedir({ accion: 'grupo', id: s.id }).datos.personas.length, 3);
+  for (const persona of [emma.datos.perfil, leo.datos.perfil]) {
+    assert.equal(s.entrar('Ana', '', '1').ok, false);
+    assert.equal(g.pedir({ accion: 'entrar', id: s.id, persona, pin: '1' }).ok, false);
+    assert.equal(g.pedir({ accion: 'descubrir', ...acc.Ana, persona }).ok, false);
+    assert.equal(s.ad('agregarExclusion', { de: persona, a: s.por('Beto').id }).ok, false);
+  }
+  for (let i = 0; i < 20; i++) {
+    const ids = leerFila(g, s.id).personas.map((p) => p.id);
+    const parejas = JSON.parse(JSON.stringify(g.contexto.sortearPersonas(leerFila(g, s.id).personas, [], 'A')));
+    assert.deepEqual(Object.keys(parejas).sort(), [...ids].sort());
+    Object.values(parejas).flat().forEach((x) => assert.ok(ids.includes(x)));
+  }
+  assert.match(guardarPerfil(g, acc.Beto, perfil(), { perfil: emma.datos.perfil, nombre: 'X' }).error, /ya no existe/, 'nadie edita perfiles ajenos');
+  assert.match(guardarPerfil(g, acc.Beto, perfil(), { persona: s.por('Ana').id }).error, /No gestionás/);
+  assert.match(g.pedir({ accion: 'quitarPerfil', ...acc.Beto, perfil: emma.datos.perfil }).error, /ya no existe/);
+  guardarPerfil(g, acc.Ana, perfil({ recibir: 'Otra agenda' }));
+  assert.equal(g.pedir({ accion: 'yo', ...acc.Ana }).datos.lista.hijos.length, 2, 'editar lo propio no toca a los hijos');
+  assert.ok(guardarPerfil(g, acc.Ana, perfil({ recibir: 'Muñeca grande', gustos: [], talles: {}, preferencias: '', evitar: '', pistas: '' }), { perfil: emma.datos.perfil, nombre: 'Emma' }).ok);
+  s.ad('sortear');
+  const ve = JSON.stringify(quienRegalaA(g, acc, 'Ana'));
+  assert.ok(ve.includes('"hijo":"Emma"') && ve.includes('Muñeca grande') && ve.includes('Otra agenda'));
+  assert.ok(!ve.includes('Leo'), 'el perfil no compartido no viaja');
+  guardarPerfil(g, acc.Ana, perfil({ compartir: false }));
+  const solo = JSON.parse(JSON.stringify(quienRegalaA(g, acc, 'Ana').pistas));
+  assert.deepEqual(solo.map((x) => x.hijo), ['Emma'], 'compartir es independiente por perfil');
+  assert.ok(g.pedir({ accion: 'quitarPerfil', ...acc.Ana, perfil: emma.datos.perfil }).ok);
+  assert.deepEqual(g.pedir({ accion: 'yo', ...acc.Ana }).datos.lista.hijos.map((h) => h.nombre), ['Leo']);
+  for (let i = 0; i < 4; i++) nuevo('Hijo ' + i);
+  assert.match(nuevo('De más').error, /máximo es de 5/);
+});
+
+test('hijos que participan: lista propia, aparte de la del adulto', () => {
+  const g = cargar('https://app/');
+  const s = armar(g, nombres('Ana', 'Beto', 'Caro'));
+  const ana = s.por('Ana').id;
+  for (const nombre of ['Nico', 'Mia', 'Leo']) s.ad('agregarPersona', { nombre, tipo: 'nino', responsable: ana });
+  const nico = s.por('Nico').id;
+  const acc = Object.fromEntries(['Ana', 'Beto', 'Caro'].map((n) => [n, s.validar(n)]));
+  assert.ok(guardarPerfil(g, acc.Ana, perfil({ recibir: 'Pelota' }), { persona: nico }).ok);
+  assert.ok(guardarPerfil(g, acc.Ana, perfil({ recibir: 'Agenda' })).ok);
+  assert.match(guardarPerfil(g, acc.Ana, perfil(), { persona: nico, perfil: 'nuevo', nombre: 'X' }).error, /Solo un adulto/);
+  assert.match(guardarPerfil(g, acc.Beto, perfil(), { persona: nico }).error, /No gestionás/);
+  s.ad('sortear');
+  const yo = g.pedir({ accion: 'yo', ...acc.Ana }).datos;
+  assert.deepEqual([yo.lista.recibir, yo.aCargo.find((x) => x.nombre === 'Nico').lista.recibir], ['Agenda', 'Pelota']);
+  const deNinos = yo.aCargo.map((n) => g.pedir({ accion: 'descubrir', ...acc.Ana, persona: n.persona }).datos[0]);
+  assert.equal(deNinos.find((t) => t.nombre === 'Nico').pistas[0].recibir, 'Pelota');
+  assert.ok(!JSON.stringify(deNinos).includes('Agenda'), 'no se mezclan');
+});
+
+test('matriz: misma función que el sorteo real', () => {
+  const g = cargar('https://app/');
+  let ok = 0, conflicto = 0;
+  for (let k = 0; k < 60; k++) {
+    g.contexto.MAX_CREACIONES_POR_MAIL = g.contexto.MAX_CREACIONES_POR_DIA = 1e9; g.estado.cupo = 1e6;
+    const s = armar(g, [...nombres('Ana', 'Beto', 'Caro', 'Dani'), ...(k % 2 ? [{ nombre: 'Nico', tipo: 'nino' }] : [])]);
+    if (k % 2) s.ad('guardarEvento', { fecha: FECHA, modalidad: 'B' });
+    const ps = s.ad('admin').datos.personas;
+    for (const de of ps) for (const a of ps) if (de !== a && Math.random() < .42) s.ad('agregarExclusion', { de: de.id, a: a.id });
+    const v = s.ad('admin').datos.verificacion;
+    const sim = s.ad('simular');
+    assert.equal(sim.ok, v.ok);
+    assert.equal(leerFila(g, s.id).parejas, '', 'simular no guarda nada');
+    const real = s.ad('sortear');
+    assert.equal(real.ok, v.ok, 'lo validado se puede sortear, y al revés');
+    if (v.ok) ok++; else { conflicto++; assert.equal(real.error, v.motivo); assert.ok(s.ad('limpiarExclusiones').datos.verificacion.ok); }
+  }
+  assert.ok(ok > 8 && conflicto > 8, ok + '/' + conflicto);
+  const s = armar(g, nombres('Ana', 'Beto', 'Caro'));
+  s.ad('sortear');
+  assert.match(s.ad('simular').error, /ya se hizo/);
+  assert.match(s.ad('limpiarExclusiones').error, /ya se hizo/);
+  assert.equal(s.ad('admin').datos.verificacion, null);
+  for (let i = 0; i < 2; i++) assert.ok(s.ad('reabrir').ok);
+  const [a, b] = ['Ana', 'Beto'].map((n) => s.por(n).id);
+  for (let i = 0; i < 3; i++) s.ad('agregarExclusion', { de: a, a: b });
+  assert.equal(s.ad('admin').datos.exclusiones.length, 1, 'repetir no duplica');
+  for (let i = 0; i < 2; i++) assert.equal(s.ad('quitarExclusion', { de: a, a: b }).datos.exclusiones.length, 0);
+});
+
 test('teléfono: tiene que coincidir con el cargado', () => {
   const g = cargar('https://app/');
   const s = armar(g, [{ nombre: 'Ana', telefono: '2966 15-123456' }, { nombre: 'Beto' }, { nombre: 'Caro' }]);
@@ -366,7 +548,7 @@ test('seguridad: accesos cruzados, datos inválidos y abuso', () => {
   const g = cargar('https://app/');
   const s = armar(g, nombres('Ana', 'Beto'));
   const t = armar(g, nombres('Zoe'));
-  for (const accion of ['admin', 'guardarEvento', 'agregarPersona', 'editarPersona', 'quitarPersona', 'agregarExclusion', 'quitarExclusion', 'corregirTelefono', 'liberar', 'reabrir', 'sortear', 'reenviar', 'invitar', 'pedirEmergencia', 'verSorteo']) {
+  for (const accion of ['admin', 'guardarEvento', 'agregarPersona', 'editarPersona', 'quitarPersona', 'agregarExclusion', 'quitarExclusion', 'limpiarExclusiones', 'simular', 'corregirTelefono', 'liberar', 'reabrir', 'sortear', 'reenviar', 'invitar', 'pedirEmergencia', 'verSorteo']) {
     assert.equal(g.pedir({ accion, id: s.id, token: t.token, nombre: 'X', tipo: 'adulto' }).sinAcceso, true, accion);
     assert.equal(g.pedir({ accion, id: s.id }).sinAcceso, true, accion);
   }

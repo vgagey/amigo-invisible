@@ -17,6 +17,10 @@ var PINES_POR_SORTEO = 60; // por día
 var MINUTOS_PIN = 30; // validez de un PIN
 var INTENTOS_TELEFONO = 5; // cada 15 minutos, por nombre
 var INTENTOS_INVITACION = 10; // después hay que enviar otro PIN
+var MAX_DATOS = 49000; // por sorteo: es lo que entra en una celda
+var MAX_TEXTO_PERFIL = 500; // suma de los cuatro textos de una lista de deseos
+var MAX_GUSTOS = 12;
+var MAX_HIJOS = 5; // perfiles de hijos que no participan, por adulto
 var DIAS_HASTA_BORRAR = 30;
 
 /** Ejecutar una sola vez, a mano, desde el editor. */
@@ -81,18 +85,22 @@ var ACCIONES_ = {
   quitarPersona: conAdmin_(quitarPersona_),
   agregarExclusion: conAdmin_(agregarExclusion_),
   quitarExclusion: conAdmin_(quitarExclusion_),
+  limpiarExclusiones: conAdmin_(limpiarExclusiones_),
   corregirTelefono: conAdmin_(corregirTelefono_),
   liberar: conAdmin_(liberar_),
   reabrir: conAdmin_(reabrir_),
   sortear: sortear_,
   reenviar: reenviar_,
   invitar: invitar_,
+  simular: simular_,
   pedirEmergencia: pedirEmergencia_,
   verSorteo: verSorteo_,
   // Participantes
   yo: yo_,
   descubrir: descubrir_,
-  guardarDeseos: guardarDeseos_
+  guardarDeseos: guardarDeseos_,
+  guardarPerfil: guardarPerfil_,
+  quitarPerfil: quitarPerfil_
 };
 
 function crear_(pedido) {
@@ -142,8 +150,34 @@ function verAdmin_(s) {
         validada: p.validada || '', entro: p.entro === true, vio: p.vio === true, envio: p.envio || ''
       };
     }),
-    exclusiones: s.exclusiones
+    exclusiones: s.exclusiones,
+    verificacion: s.estado === 'abierto' ? verificar_(s) : null
   };
+}
+
+/** Usa la misma función que el sorteo real, sin guardar nada. */
+function verificar_(s) {
+  try {
+    sortearPersonas(s.personas, s.exclusiones, s.evento.modalidad);
+    return { ok: true, motivo: '' };
+  } catch (error) {
+    return { ok: false, motivo: error.message };
+  }
+}
+
+/** Ejemplo de emparejamiento: no se guarda ni influye en el sorteo. */
+function simular_(pedido) {
+  var s = abrirAdmin_(pedido);
+  exigirAbierto_(s);
+  var parejas;
+  try {
+    parejas = sortearPersonas(s.personas, s.exclusiones, s.evento.modalidad);
+  } catch (error) {
+    throw aviso_(error.message);
+  }
+  return s.personas.filter(function (p) { return parejas[p.id]; }).map(function (p) {
+    return { nombre: p.nombre, regalaA: parejas[p.id].map(function (id) { return buscarPersona_(s, id).nombre; }) };
+  });
 }
 
 function guardarEvento_(s, pedido) {
@@ -245,6 +279,11 @@ function sumarExclusion_(s, de, a) {
 function quitarExclusion_(s, pedido) {
   exigirAbierto_(s);
   s.exclusiones = s.exclusiones.filter(function (e) { return !(e.de === pedido.de && e.a === pedido.a); });
+}
+
+function limpiarExclusiones_(s) {
+  exigirAbierto_(s);
+  s.exclusiones = [];
 }
 
 function corregirTelefono_(s, pedido) {
@@ -561,14 +600,17 @@ function yo_(pedido) {
     persona: p.id,
     nombre: p.nombre,
     organizador: s.organizador.nombre,
-    evento: { nombre: s.evento.nombre, fecha: s.evento.fecha, presupuesto: s.evento.presupuesto, mensaje: s.evento.mensaje },
+    evento: { nombre: s.evento.nombre, fecha: s.evento.fecha, presupuesto: s.evento.presupuesto, mensaje: s.evento.mensaje, modalidad: s.evento.modalidad },
     sorteado: s.estado === 'sorteado',
     regala: regala_(s, p),
     aCargo: s.personas.filter(function (x) { return x.responsable === p.id; }).map(function (x) {
-      return { persona: x.id, nombre: x.nombre, deseos: x.deseos, regala: regala_(s, x) };
+      return { persona: x.id, nombre: x.nombre, deseos: textoDeseos_(x), lista: leerLista_(x.deseos), regala: regala_(s, x) };
     }),
     reinicio: p.reinicio || '',
-    deseos: p.deseos
+    editable: hoy_() <= s.evento.fecha,
+    puedeSumarHijos: p.tipo === 'adulto',
+    deseos: textoDeseos_(p),
+    lista: leerLista_(p.deseos)
   };
 }
 
@@ -596,19 +638,148 @@ function descubrir_(pedido) {
     }
     return (mostrar_(s.parejas)[p.id] || []).map(function (id) {
       var otra = buscarPersona_(s, id);
-      return { nombre: otra.nombre, deseos: otra.deseos };
+      return { nombre: otra.nombre, deseos: textoDeseos_(otra), pistas: pistasDe_(otra) };
     });
   });
 }
 
+/** Formato anterior, de un solo texto: se conserva para páginas que quedaron abiertas. */
 function guardarDeseos_(pedido) {
   return conCandado_(function () {
     var s = abrir_(pedido.id);
     var p = personaPedida_(s, pedido);
-    p.deseos = validarTexto_(pedido.deseos, 500);
+    if (p.deseos && typeof p.deseos === 'object') throw aviso_('Recargá la página para editar tu lista de deseos.');
+    exigirEditable_(s);
+    p.deseos = validarTexto_(pedido.deseos, MAX_TEXTO_PERFIL);
+    guardarConReserva_(s);
+    return {};
+  });
+}
+
+/* ---------- Lista de deseos ---------- */
+
+// Se guarda en persona.deseos: { compartir, talles, gustos, preferencias, recibir, evitar, pistas, hijos }.
+// Los hijos viven acá y nunca en s.personas, que es lo único que recibe el sorteo.
+
+var TALLES_ = ['superior', 'inferior', 'calzado', 'otro'];
+var TEXTOS_ = ['preferencias', 'recibir', 'evitar', 'pistas'];
+
+/** Acepta el texto anterior, el objeto nuevo y datos vacíos o incompletos. */
+function leerLista_(valor) {
+  if (typeof valor === 'string') return leerPerfil_(valor ? { recibir: valor } : {}, true);
+  return leerPerfil_(valor, true);
+}
+
+function leerPerfil_(valor, conHijos) {
+  var x = valor && typeof valor === 'object' && !Array.isArray(valor) ? valor : {};
+  var talles = x.talles && typeof x.talles === 'object' ? x.talles : {};
+  var perfil = { compartir: x.compartir !== false, talles: {}, gustos: [] };
+  TALLES_.forEach(function (t) { perfil.talles[t] = texto_(talles[t]); });
+  if (Array.isArray(x.gustos)) perfil.gustos = x.gustos.map(texto_).filter(String);
+  TEXTOS_.forEach(function (t) { perfil[t] = texto_(x[t]); });
+  if (conHijos) {
+    perfil.hijos = (Array.isArray(x.hijos) ? x.hijos : []).filter(function (h) { return h && h.id; }).map(function (h) {
+      var hijo = leerPerfil_(h, false);
+      hijo.id = texto_(h.id);
+      hijo.nombre = texto_(h.nombre);
+      return hijo;
+    });
+  }
+  return perfil;
+}
+
+function texto_(valor) {
+  return typeof valor === 'string' || typeof valor === 'number' ? String(valor).trim() : '';
+}
+
+function textoDeseos_(p) {
+  return typeof p.deseos === 'string' ? p.deseos : '';
+}
+
+/** Lo que ve quien regala: solo perfiles compartidos y bloques completos. */
+function pistasDe_(p) {
+  var lista = leerLista_(p.deseos);
+  return [lista].concat(lista.hijos).filter(function (x) { return x.compartir; }).map(function (x) {
+    var visible = { hijo: x.nombre || '' };
+    var talles = {};
+    TALLES_.forEach(function (t) { if (x.talles[t]) talles[t] = x.talles[t]; });
+    if (Object.keys(talles).length) visible.talles = talles;
+    if (x.gustos.length) visible.gustos = x.gustos;
+    TEXTOS_.forEach(function (t) { if (x[t]) visible[t] = x[t]; });
+    return visible;
+  }).filter(function (x) { return Object.keys(x).length > 1; });
+}
+
+/** Guarda un solo perfil: el propio, o el de un hijo que no participa ("nuevo" lo crea). */
+function guardarPerfil_(pedido) {
+  return conCandado_(function () {
+    var s = abrir_(pedido.id);
+    var p = personaPedida_(s, pedido);
+    exigirEditable_(s);
+    var lista = leerLista_(p.deseos);
+    var perfil = validarPerfil_(pedido.datos);
+    if (!pedido.perfil) {
+      perfil.hijos = lista.hijos;
+      lista = perfil;
+    } else {
+      if (p.tipo !== 'adulto') throw aviso_('Solo un adulto puede sumar perfiles de hijos.');
+      perfil.nombre = validarNombre_(pedido.nombre);
+      if (pedido.perfil === 'nuevo') {
+        if (lista.hijos.length >= MAX_HIJOS) throw aviso_('El máximo es de ' + MAX_HIJOS + ' perfiles de hijos.');
+        perfil.id = 'h' + nuevoToken_().slice(0, 8);
+        lista.hijos.push(perfil);
+      } else {
+        var lugar = lugarDeHijo_(lista, pedido.perfil);
+        perfil.id = lista.hijos[lugar].id;
+        lista.hijos[lugar] = perfil;
+      }
+    }
+    p.deseos = lista;
+    guardarConReserva_(s);
+    return { perfil: perfil.id || '' };
+  });
+}
+
+function quitarPerfil_(pedido) {
+  return conCandado_(function () {
+    var s = abrir_(pedido.id);
+    var p = personaPedida_(s, pedido);
+    exigirEditable_(s);
+    var lista = leerLista_(p.deseos);
+    lista.hijos.splice(lugarDeHijo_(lista, pedido.perfil), 1);
+    p.deseos = lista;
     guardar_(s);
     return {};
   });
+}
+
+function lugarDeHijo_(lista, id) {
+  for (var i = 0; i < lista.hijos.length; i++) {
+    if (lista.hijos[i].id === id) return i;
+  }
+  throw aviso_('Ese perfil ya no existe. Recargá la página.');
+}
+
+function validarPerfil_(datos) {
+  var perfil = leerPerfil_(datos, false);
+  TALLES_.forEach(function (t) { if (perfil.talles[t].length > 30) throw aviso_('Cada talle admite hasta 30 caracteres.'); });
+  if (perfil.gustos.length > MAX_GUSTOS) throw aviso_('Elegí hasta ' + MAX_GUSTOS + ' gustos.');
+  perfil.gustos.forEach(function (g) { if (g.length > 30) throw aviso_('Cada gusto admite hasta 30 caracteres.'); });
+  var largo = TEXTOS_.reduce(function (suma, t) { return suma + perfil[t].length; }, 0);
+  if (largo > MAX_TEXTO_PERFIL) throw aviso_('Los textos suman ' + largo + ' caracteres y el máximo es ' + MAX_TEXTO_PERFIL + '. No se guardó: acortá alguno.');
+  return perfil;
+}
+
+function exigirEditable_(s) {
+  if (hoy_() > s.evento.fecha) throw aviso_('El encuentro ya pasó: la lista no se puede editar.');
+}
+
+/** Las listas nunca ocupan el espacio que necesitan el sorteo y los accesos. */
+function guardarConReserva_(s) {
+  if (JSON.stringify(s).length > MAX_DATOS - 5000 - 100 * s.personas.length) {
+    throw aviso_('Este sorteo no tiene más espacio para listas de deseos. No se guardó este cambio; lo anterior sigue igual.');
+  }
+  guardar_(s);
 }
 
 /* ---------- Accesos ---------- */
@@ -872,7 +1043,7 @@ function abrir_(id) {
 
 function guardar_(s) {
   var datos = JSON.stringify(s);
-  if (datos.length > 49000) throw aviso_('El sorteo tiene demasiados datos. Acortá las listas de deseos.');
+  if (datos.length > MAX_DATOS) throw aviso_('El sorteo tiene demasiados datos. Acortá las listas de deseos.');
   var hoja = hoja_();
   var fila = buscarFila_(hoja, s.id) || hoja.getLastRow() + 1;
   if (fila > hoja.getMaxRows()) hoja.insertRowAfter(hoja.getMaxRows());
