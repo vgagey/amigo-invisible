@@ -1,0 +1,21 @@
+/* Colores y fondos de la experiencia navideña. */
+.navidad { position: relative; overflow: hidden; color: #fff; background: linear-gradient(160deg, #0b1f4b 0%, #14206b 60%, #3b1e86 100%); }
+.navidad .barra, .navidad .heroe, .navidad .titular { position: relative; width: 100%; max-width: 1120px; margin: 0 auto; padding-left: 24px; padding-right: 24px; }
+.navidad .barra { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px 24px; padding-top: 16px; }
+.navidad a { color: #fff; font-size: 14px; text-underline-offset: 4px; }
+.navidad a.boton { background: #f6c453; color: #0b1f4b; font-size: 15px; }
+.navidad a.boton:hover { background: #ffd67a; }
+.navidad .luces { position: absolute; left: 50%; top: 84px; width: 1280px; height: 90px; margin-left: -640px; }
+.navidad .heroe { display: flex; flex-wrap: wrap; align-items: center; gap: 40px; padding-top: 104px; padding-bottom: 72px; }
+.navidad .heroe > * { flex: 1 1 300px; min-width: 0; }
+.navidad .heroe h1 { font-size: clamp(34px, 4.600vw, 54px); line-height: 1.1; letter-spacing: -1px; }
+.navidad .heroe p { color: #dce7fa; font-size: 18px; max-width: 26em; margin: 0 0 24px; }
+.navidad .heroe .etiqueta { color: #ffe3a0; font-size: 15px; margin-bottom: 14px; }
+.navidad .portada svg { display: block; width: 100%; max-width: 420px; margin: 0 auto; }
+.navidad .titular { padding-top: 116px; padding-bottom: 40px; }
+.navidad .titular p { color: #dce7fa; margin: 0; }
+.invitar { background: linear-gradient(140deg, #0b1f4b 0%, #2b2a8c 60%, #5b2ba8 100%); color: #fff; border: 0; }
+.invitar p { color: #dce7fa; }
+.invitar a, .invitar button.enlace { color: #fff; font-size: 15px; }
+.invitar button.enlace:hover { color: #fff; }
+.invitar .regalo-dibujo svg { display: block; width: 68px; height: 70px; }
