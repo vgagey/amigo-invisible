@@ -113,7 +113,11 @@ function armar(g, personas) {
   const [, id, token] = g.correos.at(-1).body.match(/#\/a\/(\w+)\/(\w+)/);
   const ad = (accion, x) => g.pedir({ accion, id, token, ...x });
   let r;
-  personas.forEach((p) => { r = ad('agregarPersona', { tipo: 'adulto', telefono: TEL, ...p }); assert.ok(r.ok, r.error); });
+  personas.forEach((p) => {
+    const responsable = p.tipo === 'nino' ? ad('admin').datos.personas.find((x) => x.tipo === 'adulto').id : undefined; // todo menor tiene un responsable
+    r = ad('agregarPersona', { tipo: 'adulto', telefono: TEL, responsable, ...p });
+    assert.ok(r.ok, r.error);
+  });
   const por = (n) => ad('admin').datos.personas.find((p) => p.nombre === n);
   const pedirPin = (n, mail, telefono = '011 15 4321 9876') => g.pedir({ accion: 'pedirPin', id, persona: por(n).id, mail, telefono });
   const entrar = (n, mail, pin) => g.pedir({ accion: 'entrar', id, persona: por(n).id, mail, pin });
@@ -452,7 +456,7 @@ test('corregir datos antes de validar no borra nada; cambiar quién gestiona pid
   guardarPerfil(g, b, perfil(), { persona: nico });
   const aCaro = { persona: nico, nombre: 'Nico', tipo: 'nino', responsable: s.por('Caro').id };
   assert.match(s.ad('editarPersona', aCaro).error, /confirmar/);
-  assert.match(s.ad('editarPersona', { persona: nico, nombre: 'Nico', tipo: 'nino', correo: 'org@x.com' }).error, /confirmar/, 'ni sacándole el responsable');
+  assert.match(s.ad('editarPersona', { persona: nico, nombre: 'Nico', tipo: 'nino', correo: 'org@x.com' }).error, /responsable/, 'no puede quedar sin responsable');
   assert.equal(g.pedir({ accion: 'yo', ...b }).datos.aCargo[0].lista.recibir, 'Una agenda');
   assert.ok(s.ad('editarPersona', { ...aCaro, responsable: s.por('Beto').id, nombre: 'Nicolás' }).ok, 'mismo responsable: no pide nada');
   assert.equal(g.pedir({ accion: 'yo', ...b }).datos.aCargo[0].lista.recibir, 'Una agenda');
@@ -542,7 +546,7 @@ test('adulto a niño: se bloquea si tiene hijos, pareja o figura como padre', ()
   const s = armar(g, nombres('Ana', 'Beto', 'Caro'));
   const a = s.validar('Ana');
   const ana = s.por('Ana').id;
-  const pasar = () => s.ad('editarPersona', { persona: ana, nombre: 'Ana', tipo: 'nino', telefono: TEL });
+  const pasar = () => s.ad('editarPersona', { persona: ana, nombre: 'Ana', tipo: 'nino', responsable: s.por('Beto').id });
   const emma = guardarPerfil(g, a, perfil(), { perfil: 'nuevo', nombre: 'Emma' }).datos.perfil;
   assert.match(pasar().error, /menores a cargo/);
   assert.equal(g.pedir({ accion: 'yo', ...a }).datos.lista.hijos.length, 1, 'siguen y se pueden editar');
@@ -550,9 +554,11 @@ test('adulto a niño: se bloquea si tiene hijos, pareja o figura como padre', ()
   s.ad('editarPersona', { persona: ana, nombre: 'Ana', tipo: 'adulto', telefono: TEL, pareja: s.por('Beto').id });
   assert.match(pasar().error, /pareja/);
   s.ad('editarPersona', { persona: ana, nombre: 'Ana', tipo: 'adulto', telefono: TEL, pareja: '' });
-  s.ad('agregarPersona', { nombre: 'Nico', tipo: 'nino', telefono: TEL, padre1: ana });
+  s.ad('agregarPersona', { nombre: 'Nico', tipo: 'nino', responsable: s.por('Beto').id, padre1: ana });
   assert.match(pasar().error, /Madre \/ Padre/);
-  s.ad('editarPersona', { persona: s.por('Nico').id, nombre: 'Nico', tipo: 'nino', telefono: TEL, padre1: '', padre2: '' });
+  s.ad('editarPersona', { persona: s.por('Nico').id, nombre: 'Nico', tipo: 'nino', responsable: s.por('Beto').id, padre1: '', padre2: '' });
+  assert.match(pasar().error, /Liberar/);
+  s.ad('liberar', { persona: ana });
   assert.ok(pasar().ok);
 });
 
@@ -611,6 +617,7 @@ test('relaciones: no dan permisos y hay un único responsable', () => {
 test('propuestas: por id y motivo, en ambos sentidos y según modalidad', () => {
   const g = cargar('https://app/');
   const s = armar(g, nombres('Ana', 'Beto', 'Caro', 'Dani'));
+  s.ad('reglaFamilia', { activa: false });
   const [ana, beto, caro] = ['Ana', 'Beto', 'Caro'].map((n) => s.por(n).id);
   const editar = (persona, nombre, x) => { const r = s.ad('editarPersona', { persona, nombre, tipo: 'adulto', telefono: TEL, ...x }); assert.ok(r.ok, r.error); };
   const modo = (modalidad) => assert.ok(s.ad('guardarEvento', { fecha: FECHA, modalidad }).ok);
@@ -669,13 +676,14 @@ test('propuestas: por id y motivo, en ambos sentidos y según modalidad', () => 
 test('propuestas aceptadas se respetan; las de adulto y niño no afectan a cada uno con su grupo', () => {
   const g = cargar('https://app/');
   const s = armar(g, nombres('Ana', 'Beto', 'Caro', 'Dani', 'Eva'));
+  s.ad('reglaFamilia', { activa: false });
   const ids = Object.fromEntries(['Ana', 'Beto', 'Caro', 'Dani', 'Eva'].map((n) => [n, s.por(n).id]));
   s.ad('editarPersona', { persona: ids.Ana, nombre: 'Ana', tipo: 'adulto', telefono: TEL, pareja: ids.Beto });
   for (const nombre of ['Nico', 'Mia', 'Leo']) s.ad('agregarPersona', { nombre, tipo: 'nino', responsable: ids.Ana, padre1: ids.Ana, padre2: ids.Beto });
   s.ad('guardarEvento', { fecha: FECHA, modalidad: 'B' });
   // Si todos los niños son de la misma pareja, no tiene solución y se avisa antes de aceptar
   assert.equal(s.ad('admin').datos.verificacionConPropuestas.ok, false);
-  s.ad('agregarPersona', { nombre: 'Otro', tipo: 'nino', telefono: TEL });
+  s.ad('agregarPersona', { nombre: 'Otro', tipo: 'nino', responsable: ids.Eva });
   assert.equal(s.ad('admin').datos.verificacionConPropuestas.ok, true);
   s.ad('aceptarPropuesta');
   for (let i = 0; i < 60; i++) {
@@ -705,6 +713,7 @@ test('propuestas aceptadas se respetan; las de adulto y niño no afectan a cada 
 
   // Si aceptarlas lo vuelve imposible, lo avisa antes
   const t = armar(g, nombres('Uno', 'Dos', 'Tres'));
+  t.ad('reglaFamilia', { activa: false });
   t.ad('editarPersona', { persona: t.por('Uno').id, nombre: 'Uno', tipo: 'adulto', telefono: TEL, pareja: t.por('Dos').id });
   let v = t.ad('admin').datos;
   assert.deepEqual([v.verificacion.ok, v.verificacionConPropuestas.ok], [true, false]);
@@ -758,7 +767,7 @@ test('matriz: misma función que el sorteo real', () => {
   for (let k = 0; k < 60; k++) {
     g.contexto.MAX_CREACIONES_POR_MAIL = g.contexto.MAX_CREACIONES_POR_DIA = 1e9; g.estado.cupo = 1e6;
     const s = armar(g, [...nombres('Ana', 'Beto', 'Caro', 'Dani'), ...(k % 2 ? [{ nombre: 'Nico', tipo: 'nino' }] : [])]);
-    if (k % 2) s.ad('guardarEvento', { fecha: FECHA, modalidad: 'B' });
+    if (k % 2) { s.ad('guardarEvento', { fecha: FECHA, modalidad: 'B' }); s.ad('descartarPropuesta'); }
     const ps = s.ad('admin').datos.personas;
     for (const de of ps) for (const a of ps) if (de !== a && Math.random() < .42) s.ad('agregarExclusion', { de: de.id, a: a.id });
     const v = s.ad('admin').datos.verificacion;
@@ -927,9 +936,185 @@ test('modalidad B por la API: los niños no regalan', () => {
   const g = cargar('https://app/');
   const s = armar(g, [...nombres('Ana', 'Beto', 'Caro'), { nombre: 'Nico', tipo: 'nino' }]);
   s.ad('guardarEvento', { fecha: FECHA, presupuesto: '20000.5', modalidad: 'B' });
-  const [nico, caro] = [s.validar('Nico'), s.validar('Caro')];
+  s.ad('descartarPropuesta');
+  const [ana, caro] = [s.validar('Ana'), s.validar('Caro')];
   assert.ok(s.ad('sortear').ok);
-  assert.equal(g.pedir({ accion: 'yo', ...nico }).datos.regala, false);
-  assert.deepEqual(g.pedir({ accion: 'descubrir', ...nico }).datos, []);
+  const nico = g.pedir({ accion: 'yo', ...ana }).datos.aCargo[0];
+  assert.equal(nico.regala, false);
+  assert.deepEqual(g.pedir({ accion: 'descubrir', ...ana, persona: nico.persona }).datos, []);
   assert.deepEqual(g.pedir({ accion: 'descubrir', ...caro }).datos.map((x) => x.nombre === 'Nico').sort(), [false, true]);
 });
+
+/* ---------- Familias, regalos especiales, ingreso con mail y personajes ---------- */
+
+// Cuatro familias: 8 adultos y 9 niños, con nombres neutros.
+const FAMILIAS = [['A1', 'A2', ['a1', 'a2']], ['B1', 'B2', ['b1', 'b2', 'b3']], ['C1', 'C2', ['c1', 'c2']], ['D1', 'D2', ['d1', 'd2']]];
+function cuatroFamilias(g, modalidad = 'B') {
+  g.estado.cupo = 1e6;
+  const s = armar(g, FAMILIAS.flatMap(([a, b]) => [{ nombre: a, correo: a + '@x.com' }, { nombre: b, correo: b + '@x.com' }]));
+  const id = (n) => leerFila(g, s.id).personas.find((p) => p.nombre === n).id;
+  for (const [a, b, hijos] of FAMILIAS) {
+    assert.ok(s.ad('editarPersona', { persona: id(a), nombre: a, tipo: 'adulto', correo: a + '@x.com', pareja: id(b) }).ok);
+    for (const n of hijos) assert.ok(s.ad('agregarPersona', { nombre: 'h' + n, tipo: 'nino', responsable: id(a), padre1: id(a), padre2: id(b) }).ok);
+  }
+  assert.ok(s.ad('guardarEvento', { fecha: FECHA, modalidad }).ok);
+  const familia = (n) => n.replace(/^h/, '')[0].toUpperCase();
+  return { s, id, familia };
+}
+
+test('familias: nadie regala dentro de la suya y todos reciben', () => {
+  const g = cargar('https://app/');
+  const { s, familia } = cuatroFamilias(g);
+  const v = s.ad('admin').datos;
+  assert.deepEqual([v.reglaFamilia, v.propuestas.length, v.exclusiones.length, v.verificacion.ok], [true, 0, 0, true], 'la regla no crea exclusiones ni propuestas');
+  for (let i = 0; i < 150; i++) {
+    const r = s.ad('simular').datos;
+    assert.equal(r.length, 8);
+    const todos = r.flatMap((x) => x.regalaA);
+    assert.deepEqual([todos.length, new Set(todos).size], [17, 17]);
+    for (const x of r) {
+      assert.ok(x.regalaA.every((n) => familia(n) !== familia(x.nombre)));
+      assert.equal(x.regalaA.filter((n) => !n.startsWith('h')).length, 1);
+      assert.ok(x.regalaA.some((n) => n.startsWith('h')));
+    }
+  }
+  assert.ok(s.ad('reglaFamilia', { activa: false }).ok);
+  let dentro = 0;
+  for (let i = 0; i < 40; i++) dentro += s.ad('simular').datos.filter((x) => x.regalaA.some((n) => familia(n) === familia(x.nombre))).length;
+  assert.ok(dentro > 0, 'sin la regla, la familia sola no excluye a nadie');
+  assert.ok(s.ad('admin').datos.propuestas.length > 0, 'y vuelven las propuestas');
+});
+
+test('regalo especial adicional: cubre al noveno niño y no altera el resto', () => {
+  const g = cargar('https://app/');
+  const { s, id, familia } = cuatroFamilias(g);
+  const r = s.ad('guardarEspecial', { de: id('D2'), a: id('hb3'), modo: 'adicional' });
+  assert.ok(r.ok, r.error);
+  assert.match(s.ad('guardarEspecial', { de: id('D2'), a: id('hb3') }).error, /ya está/);
+  assert.match(s.ad('guardarEspecial', { de: id('ha1'), a: id('hb1') }).error, /adulto/);
+  assert.match(s.ad('guardarEspecial', { de: id('D2'), a: id('D2') }).error, /distintas/);
+  for (let i = 0; i < 150; i++) {
+    const x = s.ad('simular').datos;
+    const normales = x.flatMap((y) => y.regalaA);
+    assert.deepEqual([normales.length, new Set(normales).size, normales.includes('hb3')], [16, 16, false]);
+    assert.ok(x.every((y) => y.regalaA.length === 2 && y.regalaA.every((n) => familia(n) !== familia(y.nombre))));
+    assert.deepEqual(x.filter((y) => y.especiales.length).map((y) => [y.nombre, y.especiales.join()]), [['D2', 'hb3']]);
+  }
+  // También recibe uno del sorteo: de otra persona
+  const especial = s.ad('admin').datos.especiales[0].id;
+  assert.ok(s.ad('guardarEspecial', { especial, de: id('D2'), a: id('hb3'), modo: 'adicional', tambien: true }).ok);
+  for (let i = 0; i < 80; i++) {
+    const x = s.ad('simular').datos;
+    assert.equal(x.flatMap((y) => y.regalaA).filter((n) => n === 'hb3').length, 1);
+    assert.ok(!x.find((y) => y.nombre === 'D2').regalaA.includes('hb3'));
+  }
+  assert.ok(s.ad('guardarEspecial', { especial, de: id('D2'), a: id('hb3'), modo: 'adicional' }).ok);
+
+  // Sorteo real: el especial se ve aparte y solo lo ve quien lo da
+  s.ad('invitar');
+  const entra = (n) => ({ id: s.id, token: s.entrar(n, '', s.pinDe(n.toLowerCase() + '@x.com')).datos.token });
+  const d2 = entra('D2'), a1 = entra('A1');
+  assert.deepEqual(g.pedir({ accion: 'yo', ...d2 }).datos.especiales, [], 'antes del sorteo no se muestra');
+  assert.ok(s.ad('sortear').ok);
+  assert.deepEqual(g.pedir({ accion: 'yo', ...d2 }).datos.especiales.map((x) => x.nombre), ['hb3']);
+  assert.deepEqual(g.pedir({ accion: 'yo', ...a1 }).datos.especiales, []);
+  const normal = g.pedir({ accion: 'descubrir', ...d2 }).datos;
+  assert.deepEqual([normal.length, normal.some((x) => x.especial || x.nombre === 'hb3')], [2, false]);
+  assert.ok(!leerFila(g, s.id).parejas.includes(id('hb3')), 'no se mezcla con lo sorteado');
+  assert.match(s.ad('guardarEspecial', { de: id('A1'), a: id('hb1') }).error, /ya se hizo/);
+  assert.match(s.ad('quitarEspecial', { especial }).error, /ya se hizo/);
+  // Emergencia: diferenciado
+  s.ad('pedirEmergencia');
+  const ver = s.ad('verSorteo', { pin: s.pinDe('org@x.com') }).datos;
+  assert.deepEqual(ver.find((x) => x.nombre === 'D2').especiales, ['hb3']);
+  assert.ok(s.ad('reabrir').ok);
+  assert.ok(s.ad('quitarPersona', { persona: id('hb3') }).ok);
+  assert.deepEqual(s.ad('admin').datos.especiales, [], 'al quitar a la persona no queda suelto');
+});
+
+test('regalo especial que reemplaza: ocupa el lugar del sorteado', () => {
+  const g = cargar('https://app/');
+  const { s, id, familia } = cuatroFamilias(g);
+  assert.ok(s.ad('guardarEspecial', { de: id('D2'), a: id('hb3'), modo: 'reemplaza' }).ok);
+  assert.ok(s.ad('guardarEspecial', { de: id('D2'), a: id('A1'), modo: 'reemplaza' }).ok);
+  assert.ok(s.ad('guardarEspecial', { de: id('C1'), a: id('C2'), modo: 'reemplaza' }).ok, 'lo especial manda sobre la regla de familia');
+  assert.match(s.ad('guardarEspecial', { de: id('D2'), a: id('hb1'), modo: 'reemplaza' }).error, /ya tiene reemplazado/);
+  assert.match(s.ad('guardarEspecial', { de: id('B1'), a: id('A1'), modo: 'reemplaza' }).error, /ya tiene un regalo/);
+  for (let i = 0; i < 100; i++) {
+    const x = s.ad('simular').datos;
+    const todos = x.flatMap((y) => y.regalaA.concat(y.especiales));
+    assert.deepEqual([todos.length, new Set(todos).size], [17, 17]);
+    const d2 = x.find((y) => y.nombre === 'D2');
+    assert.deepEqual([d2.regalaA, d2.especiales.sort()], [[], ['A1', 'hb3']]);
+    assert.ok(x.every((y) => y.regalaA.every((n) => familia(n) !== familia(y.nombre))));
+  }
+  assert.match(s.ad('editarPersona', { persona: id('C1'), nombre: 'C1', tipo: 'nino', responsable: id('A1') }).error, /./);
+  s.ad('guardarEvento', { fecha: FECHA, modalidad: 'A' });
+  assert.match(s.ad('simular').error, /Especiales/, 'si cambia la modalidad avisa, no lo pierde');
+});
+
+test('adulto y niño sin niños: los adultos se regalan entre sí', () => {
+  const g = cargar('https://app/');
+  const s = armar(g, nombres('Ana', 'Beto', 'Caro'));
+  s.ad('guardarEvento', { fecha: FECHA, modalidad: 'B' });
+  assert.ok(s.ad('simular').datos.every((x) => x.regalaA.length === 1));
+});
+
+test('responsable: obligatorio, único y con cambio confirmado', () => {
+  const g = cargar('https://app/');
+  const s = armar(g, nombres('Ana', 'Beto', 'Caro'));
+  const [ana, beto] = ['Ana', 'Beto'].map((n) => s.por(n).id);
+  assert.match(s.ad('agregarPersona', { nombre: 'Nico', tipo: 'nino', telefono: TEL }).error, /responsable/);
+  assert.ok(s.ad('agregarPersona', { nombre: 'Nico', tipo: 'nino', responsable: ana, padre1: ana, padre2: beto }).ok);
+  const cambio = { persona: s.por('Nico').id, nombre: 'Nico', tipo: 'nino', responsable: beto };
+  assert.match(s.ad('editarPersona', cambio).error, /confirmar/);
+  assert.equal(s.por('Nico').responsable, ana);
+  assert.ok(s.ad('editarPersona', { ...cambio, vaciar: true }).ok);
+  assert.deepEqual([s.por('Nico').responsable, s.por('Nico').padres.length], [beto, 2], 'el parentesco no cambia');
+});
+
+test('ingreso con mail: misma respuesta siempre, y cada quien recibe solo lo suyo', () => {
+  const g = cargar('https://app/');
+  const s = armar(g, [{ nombre: 'Ana', correo: 'ana@x.com' }, { nombre: 'Beto' }, { nombre: 'Caro' }, { nombre: 'Orga2', correo: 'org@x.com' }]);
+  s.validar('Beto', 'beto@x.com');
+  s.ad('agregarPersona', { nombre: 'Nico', tipo: 'nino', responsable: s.por('Ana').id });
+  const antes = g.correos.length;
+  const respuestas = ['nadie@x.com', 'ANA@x.com', 'beto@x.com', 'org@x.com'].map((mail) => JSON.stringify(g.pedir({ accion: 'acceder', mail })));
+  assert.equal(new Set(respuestas).size, 1);
+  assert.deepEqual(g.correos.slice(antes).map((c) => c.to), ['ana@x.com', 'beto@x.com', 'org@x.com']);
+  const [ana, beto, org] = g.correos.slice(antes);
+  assert.ok(!ana.body.includes('Beto') && !ana.body.includes('#/a/') && !beto.body.includes('#/a/'));
+  // Sin validar: link y PIN; validado: link directo; organiza: link del panel sin cortar el anterior
+  assert.ok(s.entrar('Ana', '', ana.body.match(/^(\d{6})$/m)[1]).ok);
+  assert.equal(g.pedir({ accion: 'yo', ...link(beto) }).datos.nombre, 'Beto');
+  const [, id, token] = org.body.match(/#\/a\/(\w+)\/(\w+)/);
+  assert.ok(g.pedir({ accion: 'admin', id, token }).ok);
+  assert.ok(s.ad('admin').ok, 'el link anterior sigue');
+  assert.match(org.body, /Orga2/);
+  assert.equal(g.pedir({ accion: 'admin', id, token: 'x' }).sinAcceso, true);
+  assert.match(g.pedir({ accion: 'acceder', mail: 'ana@x.com' }).error, /Ya te enviamos/);
+  assert.match(g.pedir({ accion: 'acceder', mail: 'nadie@x.com' }).error, /Ya te enviamos/, 'tampoco distingue al repetir');
+  assert.match(g.pedir({ accion: 'acceder', mail: '' }).error, /mail/);
+  // Los datos nuevos se ven igual entrando por cualquier vía
+  guardarPerfil(g, link(beto), perfil({ personajes: 'Dragones' }));
+  g.contexto.contarEnvio_ = () => {};
+  g.pedir({ accion: 'acceder', mail: 'beto@x.com' });
+  assert.equal(g.pedir({ accion: 'yo', ...link(g.correos.at(-1)) }).datos.lista.personajes, 'Dragones');
+});
+
+test('personajes favoritos: se guardan, los ve quien regala y una página vieja no los borra', () => {
+  const g = cargar('https://app/');
+  const s = armar(g, nombres('Ana', 'Beto', 'Caro'));
+  const a = s.validar('Ana');
+  guardarPerfil(g, a, perfil({ personajes: 'Dragones' }));
+  const emma = guardarPerfil(g, a, perfil({ personajes: 'Sirenas' }), { perfil: 'nuevo', nombre: 'Emma' }).datos.perfil;
+  const { personajes, ...vieja } = perfil({ personajes: '' });
+  guardarPerfil(g, a, vieja);
+  guardarPerfil(g, a, vieja, { perfil: emma, nombre: 'Emma' });
+  const lista = () => g.pedir({ accion: 'yo', ...a }).datos.lista;
+  assert.deepEqual([lista().personajes, lista().hijos[0].personajes, lista().gustos.length > 0], ['Dragones', 'Sirenas', true]);
+  guardarPerfil(g, a, perfil({ personajes: '' }));
+  assert.equal(lista().personajes, '', 'vaciarlo a propósito sí se guarda');
+  assert.match(guardarPerfil(g, a, perfil({ recibir: 'x'.repeat(300), personajes: 'y'.repeat(300) })).error, /máximo/);
+});
+

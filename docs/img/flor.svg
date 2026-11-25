@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 120 120">
+<defs>
+<linearGradient id="azul" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6DB6F9" stop-opacity=".82"/><stop offset=".6" stop-color="#4E9BF5" stop-opacity=".6"/><stop offset="1" stop-color="#0090FF" stop-opacity=".2"/></linearGradient>
+<linearGradient id="menta" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#A5F3DC" stop-opacity=".85"/><stop offset=".6" stop-color="#5FEFC8" stop-opacity=".65"/><stop offset="1" stop-color="#00FFC0" stop-opacity=".25"/></linearGradient>
+<linearGradient id="violeta" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#C69BFA" stop-opacity=".85"/><stop offset=".6" stop-color="#B27CF6" stop-opacity=".6"/><stop offset="1" stop-color="#A855F7" stop-opacity=".2"/></linearGradient>
+<linearGradient id="indigo" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#93A4F3" stop-opacity=".8"/><stop offset=".6" stop-color="#7C90EF" stop-opacity=".55"/><stop offset="1" stop-color="#5B7BEA" stop-opacity=".2"/></linearGradient>
+<linearGradient id="claro" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#C6D6FC" stop-opacity=".9"/><stop offset="1" stop-color="#A9BEF8" stop-opacity=".5"/></linearGradient>
+<path id="p" d="M60 70C47 61 42 46 44 30C45.500 14 52 3 60 3C68 3 74.500 14 76 30C78 46 73 61 60 70Z"/>
+</defs>
+<g stroke="#fff" stroke-opacity=".55" stroke-width=".6">
+<use xlink:href="#p" href="#p" fill="url(#claro)" transform="rotate(36 60 60)"/>
+<use xlink:href="#p" href="#p" fill="url(#claro)" transform="rotate(144 60 60)"/>
+<use xlink:href="#p" href="#p" fill="url(#claro)" transform="rotate(216 60 60)"/>
+<use xlink:href="#p" href="#p" fill="url(#claro)" transform="rotate(324 60 60)"/>
+<use xlink:href="#p" href="#p" fill="url(#indigo)" transform="rotate(108 60 60)"/>
+<use xlink:href="#p" href="#p" fill="url(#indigo)" transform="rotate(252 60 60)"/>
+<use xlink:href="#p" href="#p" fill="url(#menta)" transform="rotate(72 60 60)"/>
+<use xlink:href="#p" href="#p" fill="url(#azul)" transform="rotate(288 60 60)"/>
+<use xlink:href="#p" href="#p" fill="url(#violeta)" transform="rotate(180 60 60)"/>
+<use xlink:href="#p" href="#p" fill="url(#azul)"/>
+</g>
+</svg>

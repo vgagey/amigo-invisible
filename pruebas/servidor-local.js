@@ -6,7 +6,7 @@ const path = require('path');
 const PUERTO = 4173;
 const google = require('./google-simulado')(`http://localhost:${PUERTO}/`);
 const raiz = path.join(__dirname, '../docs');
-const TIPOS = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.png': 'image/png', '.webmanifest': 'application/manifest+json' };
+const TIPOS = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.png': 'image/png', '.svg': 'image/svg+xml', '.webmanifest': 'application/manifest+json' };
 
 http.createServer((req, res) => {
   const ruta = new URL(req.url, 'http://x').pathname;

@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="30 40 280 310">
+<defs>
+<linearGradient id="i" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#BFE0FF"/><stop offset="1" stop-color="#5FB2FF"/></linearGradient>
+<linearGradient id="d" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7DBBFF"/><stop offset="1" stop-color="#6A7BF2"/></linearGradient>
+<linearGradient id="t" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#EAF5FF"/><stop offset="1" stop-color="#B9D9FF"/></linearGradient>
+<linearGradient id="r" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4A8DF8"/><stop offset="1" stop-color="#6A5CEB"/></linearGradient>
+<linearGradient id="m" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#8FC6FF"/><stop offset="1" stop-color="#4A7DF5"/></linearGradient>
+</defs>
+<g stroke="#fff" stroke-opacity=".65" stroke-width="1.500" stroke-linejoin="round">
+<path d="M60 150L170 200V340L60 285Z" fill="url(#i)" opacity=".94"/>
+<path d="M170 200L280 150V285L170 340Z" fill="url(#d)" opacity=".94"/>
+</g>
+<path d="M101 169L129 182V320L101 306Z" fill="url(#r)" opacity=".85"/>
+<path d="M211 182L239 169V306L211 320Z" fill="url(#r)" opacity=".75"/>
+<g stroke="#fff" stroke-opacity=".75" stroke-width="1.500" stroke-linejoin="round">
+<path d="M50 145L170 198V226L50 172Z" fill="url(#i)"/>
+<path d="M170 198L290 145V172L170 226Z" fill="url(#d)"/>
+<path d="M170 95L290 145L170 198L50 145Z" fill="url(#t)"/>
+</g>
+<path d="M97 166L126 179V206L97 193Z" fill="url(#r)" opacity=".9"/>
+<path d="M214 179L243 166V193L214 206Z" fill="url(#r)" opacity=".8"/>
+<path d="M97 166L126 179L246 127L217 115Z" fill="url(#r)" opacity=".8"/>
+<path d="M214 179L243 166L123 115L94 127Z" fill="url(#r)" opacity=".7"/>
+<g stroke="#fff" stroke-opacity=".7" stroke-width="1.500">
+<path d="M170 144C146 92 96 64 80 94C68 122 118 148 170 144Z" fill="url(#m)"/>
+<path d="M170 144C194 92 244 64 260 94C272 122 222 148 170 144Z" fill="url(#m)"/>
+<path d="M168 144C150 150 128 166 122 190C140 186 162 170 174 148Z" fill="url(#r)"/>
+<path d="M172 144C190 150 212 166 218 190C200 186 178 170 166 148Z" fill="url(#r)"/>
+<ellipse cx="170" cy="141" rx="17" ry="13" fill="url(#m)"/>
+</g>
+<path d="M98 96C112 94 132 106 146 122" fill="none" stroke="#fff" stroke-opacity=".7" stroke-width="3" stroke-linecap="round"/>
+<path d="M242 96C228 94 208 106 194 122" fill="none" stroke="#fff" stroke-opacity=".7" stroke-width="3" stroke-linecap="round"/>
+</svg>
