@@ -260,9 +260,14 @@ test('invitación: link y PIN al mail que cargó quien organiza', () => {
 
 const perfil = (x) => ({ compartir: true, talles: { superior: 'M' }, gustos: ['Libros', 'Cerámica'], preferencias: 'Colores neutros', recibir: 'Una agenda', evitar: 'Chocolates', pistas: 'Zurda 🎁', ...x });
 const guardarPerfil = (g, acceso, datos, mas) => g.pedir({ accion: 'guardarPerfil', ...acceso, datos, ...mas });
-const fila = (g, id) => g.filas.find((f) => f[0] === id);
-const leerFila = (g, id) => JSON.parse(fila(g, id)[2]);
-const escribirFila = (g, id, cambio) => { const s = leerFila(g, id); cambio(s); fila(g, id)[2] = JSON.stringify(s); };
+// Lo guardado de un sorteo, esté en la planilla o en la base.
+const enBase = (g) => g.contexto.enSupabase_ && g.contexto.enSupabase_();
+const fila = (g, id) => enBase(g) ? [id, '', JSON.stringify(g.contexto.abrir_(id))] : g.filas.find((f) => f[0] === id);
+const leerFila = (g, id) => { const s = JSON.parse(fila(g, id)[2]); delete s.version; return s; };
+const escribirFila = (g, id, cambio) => {
+  if (enBase(g)) { const s = g.contexto.abrir_(id); cambio(s); g.contexto.guardar_(s); return; }
+  const s = leerFila(g, id); cambio(s); fila(g, id)[2] = JSON.stringify(s);
+};
 /** Quien le regala a esa persona, con su acceso. */
 const quienRegalaA = (g, accesos, nombre) => Object.values(accesos).map((a) => g.pedir({ accion: 'descubrir', ...a }).datos).flat().find((t) => t.nombre === nombre);
 
@@ -484,7 +489,11 @@ test('corregir el mail de quien validó: solo lo completa esa persona', () => {
   assert.deepEqual([s.por('ana').mail, g.correos.length], ['ana@x.com', enviados], 'proponer no cambia ni envía nada');
   for (const quien of [b, { id: s.id, token: s.token }]) assert.equal(g.pedir({ accion: 'confirmarMail', ...quien, mail: 'nuevo@x.com' }).ok, false, 'ni otro participante ni el organizador');
   assert.match(g.pedir({ accion: 'confirmarMail', ...a, mail: 'otro@x.com' }).error, /no está pendiente/);
-  const r = g.pedir({ accion: 'confirmarMail', ...a, mail: 'nuevo@x.com' });
+  const paso = g.pedir({ accion: 'confirmarMail', ...a, mail: 'nuevo@x.com' });
+  assert.deepEqual([paso.datos, g.correos.at(-1).to], [{ codigo: true }, 'nuevo@x.com'], 'primero llega un código al mail nuevo');
+  assert.equal(s.por('ana').mail, 'ana@x.com', 'sin código no cambia');
+  assert.match(g.pedir({ accion: 'confirmarMail', ...a, mail: 'nuevo@x.com', pin: '000000' }).error, /no es correcto/);
+  const r = g.pedir({ accion: 'confirmarMail', ...a, mail: 'nuevo@x.com', pin: s.pinDe('nuevo@x.com') });
   assert.ok(r.ok, r.error);
   const n = { id: s.id, token: r.datos.token };
   assert.equal(g.pedir({ accion: 'yo', ...viejo }).sinAcceso, true, 'el link anterior no sirve');
@@ -1193,4 +1202,52 @@ test('link familiar: un solo link muestra los regalos de esa familia y de ningun
   assert.equal(ver().ok, true, 'cada link es de su adulto');
   s.ad('linkFamilia', { persona: id('A1') });
   assert.equal(ver().sinAcceso, true, 'generar otro anula el anterior');
+});
+
+/* ---------- Supabase: solo con YORI_ALMACEN=supabase y una base local ---------- */
+
+const conBase = { skip: process.env.YORI_ALMACEN !== 'supabase' && 'necesita la base local' };
+
+test('supabase: eliminar mis datos y eliminar evento', conBase, () => {
+  const g = cargar('https://app/');
+  const { s, id } = cuatroFamilias(g);
+  s.ad('invitar');
+  const entra = (n) => ({ id: s.id, token: s.entrar(n, '', s.pinDe(n.toLowerCase() + '@x.com')).datos.token });
+  const a1 = entra('A1'), b2 = entra('B2');
+  assert.match(g.pedir({ accion: 'eliminarMisDatos', ...a1 }).error, /responsable de un menor/);
+  guardarPerfil(g, b2, perfil({ recibir: 'SECRETO' }));
+  assert.ok(g.pedir({ accion: 'eliminarMisDatos', ...b2 }).ok);
+  assert.equal(g.pedir({ accion: 'yo', ...b2 }).sinAcceso, true, 'sin acceso');
+  assert.ok(!s.ad('admin').datos.personas.some((p) => p.nombre === 'B2'), 'antes del sorteo sale del evento');
+  assert.ok(g.pedir({ accion: 'eliminarMisDatos', ...a1, persona: id('ha1') }).ok, 'el responsable elimina los datos de su menor');
+  assert.ok(!s.ad('admin').datos.personas.some((p) => p.nombre === 'ha1'));
+  assert.ok(g.pedir({ accion: 'eliminarEvento', id: s.id, token: 'x' }).sinAcceso);
+  assert.ok(s.ad('eliminarEvento').ok);
+  assert.equal(s.ad('admin').sinAcceso, true);
+});
+
+test('supabase: pasa los sorteos de la planilla sin cambiar nada', conBase, () => {
+  const g = cargar('https://app/');
+  process.env.YORI_ALMACEN = '';
+  const props = g.contexto.PropertiesService.getScriptProperties();
+  props.setProperty('ALMACEN', '');
+  const { s } = cuatroFamilias(g);
+  s.ad('invitar');
+  const a1 = { id: s.id, token: s.entrar('A1', '', s.pinDe('a1@x.com')).datos.token };
+  guardarPerfil(g, a1, perfil({ personajes: 'Dragones' }));
+  assert.ok(s.ad('guardarEspecial', { de: s.por('D2').id, a: s.por('hb3').id, modo: 'adicional' }).ok);
+  assert.ok(s.ad('sortear').ok);
+  const antes = leerFila(g, s.id);
+  const informe = g.contexto.migrarASupabase();
+  assert.deepEqual([informe.copiados, informe.iguales, informe.distintos, informe.errores], [1, 1, [], []], JSON.stringify(informe));
+  assert.equal(props.getProperty('ALMACEN'), '', 'migrar solo no cambia lo que usa la app');
+  assert.deepEqual(g.contexto.migrarASupabase().yaEstaban, 1, 'repetirlo no duplica');
+  g.contexto.usarSupabase();
+  assert.equal(props.getProperty('ALMACEN'), 'supabase');
+  const ahora = g.pedir({ accion: 'descubrir', ...a1 });
+  assert.ok(ahora.ok, ahora.error);
+  props.setProperty('ALMACEN', '');
+  assert.deepEqual(leerFila(g, s.id), antes, 'la planilla queda igual');
+  assert.deepEqual(g.pedir({ accion: 'descubrir', ...a1 }).datos, ahora.datos, 'mismas asignaciones en las dos');
+  process.env.YORI_ALMACEN = 'supabase';
 });

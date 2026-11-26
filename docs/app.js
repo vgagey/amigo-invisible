@@ -327,9 +327,11 @@ function pantallaNavidad() {
 
 function avisoPrivacidad() {
   ventana('Aviso de privacidad',
-    h('p', {}, 'Guardamos solo los nombres, teléfonos, mails y listas de deseos que se carguen, y los usamos únicamente para este sorteo. Los mails se envían a través de Google. La fila del sorteo se elimina de la planilla 30 días después del evento.'),
-    h('p', {}, 'Quien organiza ve con qué mail entró cada persona y quién ya vio su regalo. En una emergencia, puede ver el sorteo completo.'),
-    h('p', {}, 'Cargá solo a personas que estén de acuerdo. De los niños, alcanza con el nombre de pila.'));
+    h('p', {}, 'Guardamos los nombres, teléfonos, mails, relaciones familiares y listas de deseos que se carguen, y los usamos únicamente para organizar estos sorteos. Los datos se guardan en Supabase y los mails se envían a través de Google.'),
+    h('p', {}, 'Cada evento se elimina 30 días después de su fecha, con sus participantes, regalos y listas. Conservamos tus mails comprobados y los nombres de los menores que tuviste a cargo, para reconocerte en otros eventos.'),
+    h('p', {}, 'Podés eliminar tus datos desde Mi regalo. Si el sorteo ya se hizo, en ese evento queda solo tu nombre hasta que se elimine. Las copias de seguridad pueden conservar los datos un tiempo más.'),
+    h('p', {}, 'Quien organiza ve con qué mail entró cada persona y quién ya vio su regalo. En una emergencia, puede ver el sorteo completo. Quien administra la base puede acceder a los datos guardados.'),
+    h('p', {}, 'Cargá solo a personas que estén de acuerdo. De los niños, alcanza con el nombre de pila. El mail de un menor es opcional.'));
 }
 
 function pantallaCrear() {
@@ -449,7 +451,15 @@ async function pantallaAdmin(id, token, vigente) {
         opcion({ type: 'radio', name: 'modalidad', value: 'B', checked: e.modalidad === 'B' }, 'Cada adulto regala a un adulto y a un niño'),
         opcion({ type: 'radio', name: 'modalidad', value: 'A', checked: e.modalidad === 'A' }, 'Adultos entre sí y niños entre sí')),
       aviso);
-    zonas.evento.replaceChildren(h('h1', {}, 'Evento'), abierto() ? form : datosEvento(e));
+    const borrar = enlace('Eliminar evento', (ev) => {
+      if (!confirm(`¿Eliminar "${e.nombre}"? Se borran participantes, regalos y listas. No se puede deshacer.`)) return;
+      ejecutar(ev.currentTarget, aviso, async () => {
+        await pedir('eliminarEvento', { id, token });
+        olvidar(id, 'admin');
+        ir('#/');
+      });
+    });
+    zonas.evento.replaceChildren(h('h1', {}, 'Evento'), abierto() ? form : datosEvento(e), h('div', {}, borrar), abierto() ? null : aviso);
   }
 
   /* ---------- Participantes ---------- */
@@ -1474,6 +1484,15 @@ async function pantallaRegalo(id, persona, vigente) {
   }
   leerPerfil(yo.lista).hijos.forEach(fichaExtra);
   if (fichas.length === 1 && sumar.hidden) barra.hidden = true;
+
+  /** Eliminar la identidad propia o la de un menor a cargo. */
+  function eliminarDatos(quien, de) {
+    if (!confirm(`¿Eliminar ${de}? Se borran mails, listas y accesos. Si el sorteo ya se hizo, en ese evento queda solo el nombre. No se puede deshacer.`)) return;
+    pedir('eliminarMisDatos', { ...acceso, persona: quien.persona }).then(() => {
+      if (quien === yo) { olvidar(id, persona); ir('#/'); } else navegar();
+    }, (error) => ventana('No se pudo eliminar', h('p', {}, error.message)));
+  }
+  yo.aCargo.forEach((n, i) => { if (!n.responsable) fichas[i + 1].panel.append(enlace(`Eliminar los datos de ${n.nombre}`, () => eliminarDatos(n, 'los datos de ' + n.nombre))); });
   elegir(propia);
   const deOtro = (yo.deOtro || []).length ? h('p', { class: 'chico suave' },
     yo.deOtro.map((x) => `${x.nombre} está a cargo de ${x.responsable}`).join('. ') + '. Te pueden compartir su gestión desde su Mi regalo.') : null;
@@ -1485,10 +1504,16 @@ async function pantallaRegalo(id, persona, vigente) {
       h('div', { class: 'acciones' },
         h('button', {
           type: 'button', class: 'segundo', onclick: (ev) => ejecutar(ev.currentTarget, aviso, async () => {
-            const r = await pedir('confirmarMail', { ...acceso, mail: yo.mailPropuesto });
-            acceso.token = r.token;
-            recordar({ id, persona: r.persona, nombre: r.nombre, token: r.token, encuentro: yo.evento.nombre, fecha: yo.evento.fecha });
-            caja.replaceChildren(h('p', { class: 'verde' }, 'Tu mail se actualizó. El link anterior ya no sirve.'));
+            await pedir('confirmarMail', { ...acceso, mail: yo.mailPropuesto });
+            caja.replaceChildren(formulario(aviso, async (d) => {
+              const r = await pedir('confirmarMail', { ...acceso, mail: yo.mailPropuesto, pin: d.pin });
+              acceso.token = r.token;
+              recordar({ id, persona: r.persona, nombre: r.nombre, token: r.token, encuentro: yo.evento.nombre, fecha: yo.evento.fecha });
+              caja.replaceChildren(h('p', { class: 'verde' }, 'Tu mail se actualizó. El link anterior ya no sirve.'));
+            },
+              h('p', {}, `Te enviamos un código a ${yo.mailPropuesto}.`),
+              campo('Código', h('input', { class: 'num', name: 'pin', inputmode: 'numeric', maxlength: 6, autocomplete: 'one-time-code' })),
+              aviso, enviar('Confirmar')));
           })
         }, 'Es mi mail, confirmar'),
         enlace('Rechazar', (ev) => ejecutar(ev.currentTarget, aviso, async () => {
@@ -1503,6 +1528,7 @@ async function pantallaRegalo(id, persona, vigente) {
     h('header', { class: 'cab' }, marcaNavidad(),
       h('div', { class: 'acciones' },
         enlace(`${yo.evento.nombre} · ${fechaCorta(yo.evento.fecha)}`, () => ventana(yo.evento.nombre, h('p', { class: 'suave' }, 'Organiza ' + yo.organizador + '.'), datosEvento(yo.evento), calendario(yo.evento))),
+        enlace('Eliminar mis datos', () => eliminarDatos(yo, 'tus datos')),
         enlace('Salir', () => { olvidar(id, persona); ir('#/'); }))),
     h('main', {},
       h('div', { class: 'columna' },

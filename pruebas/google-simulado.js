@@ -9,7 +9,7 @@ module.exports = function cargar(urlApp) {
   const filas = [];
   const correos = [];
   const cache = new Map();
-  const propiedades = new Map();
+  const propiedades = new Map(process.env.YORI_ALMACEN ? [['ALMACEN', process.env.YORI_ALMACEN]] : []);
   const estado = { cupo: 100, rebota: null };
 
   const hoja = {
@@ -29,7 +29,7 @@ module.exports = function cargar(urlApp) {
   };
   let creada = false;
   const contexto = {
-    console: { error: (...x) => correos.errores.push(x.join(' ')) },
+    console: { error: (...x) => correos.errores.push(x.join(' ')), log() {} },
     SpreadsheetApp: {
       flush() {},
       getActiveSpreadsheet: () => ({
@@ -45,6 +45,8 @@ module.exports = function cargar(urlApp) {
         correos.push(m);
       }
     },
+    // Con YORI_ALMACEN=supabase, las pruebas usan la base que se inyecte en global.YORI_JDBC.
+    Jdbc: global.YORI_JDBC || { getConnection() { throw new Error('Sin base de datos'); } },
     LockService: { getScriptLock: () => ({ tryLock: () => true, releaseLock() {} }) },
     CacheService: {
       getScriptCache: () => ({
@@ -56,7 +58,8 @@ module.exports = function cargar(urlApp) {
     PropertiesService: {
       getScriptProperties: () => ({
         getProperty: (k) => propiedades.get(k) ?? null,
-        setProperty: (k, v) => propiedades.set(k, v)
+        setProperty: (k, v) => propiedades.set(k, v),
+        getProperties: () => Object.fromEntries(propiedades)
       })
     },
     ContentService: {

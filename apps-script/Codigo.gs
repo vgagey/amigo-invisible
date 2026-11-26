@@ -117,7 +117,9 @@ var ACCIONES_ = {
   dejarDeCompartir: dejarDeCompartir_,
   compartirGestion: compartirGestion_,
   confirmarMail: confirmarMail_,
-  rechazarMail: rechazarMail_
+  rechazarMail: rechazarMail_,
+  eliminarMisDatos: eliminarMisDatos_,
+  eliminarEvento: eliminarEvento_
 };
 
 function crear_(pedido) {
@@ -643,12 +645,36 @@ function exigirMailDeNadie_(s, p, mail) {
   if (otro) throw aviso_('Ese mail ya corresponde a otro nombre de este sorteo.');
 }
 
+/** Primero envía un código al mail nuevo; con ese código, el cambio se confirma. */
 function confirmarMail_(pedido) {
   return conCandado_(function () {
     var s = abrir_(pedido.id);
     var p = personaConToken_(s, pedido.token);
     if (!p.mailPropuesto || p.mailPropuesto !== pedido.mail) throw aviso_('Ese cambio de mail ya no está pendiente. Recargá la página.');
     exigirMailDeNadie_(s, p, p.mailPropuesto);
+    var clave = 'mail:' + s.id + ':' + p.id + ':' + huella_(p.mailPropuesto);
+    if (!pedido.pin) {
+      contarEnvio_(clave, 1, MINUTOS_ENTRE_PINES * 60, 'Ya te enviamos el código. Revisá ese mail o esperá ' + MINUTOS_ENTRE_PINES + ' minutos.');
+      exigirCupo_(1);
+      var pin = nuevoPin_();
+      enviarMail_({
+        para: p.mailPropuesto,
+        asunto: 'Tu código de yori',
+        titulo: 'Hola, ' + p.nombre,
+        texto: 'Con este código confirmás que este mail es tuyo. Vence en ' + MINUTOS_PIN + ' minutos. Si no lo pediste, ignorá este mail.',
+        destacado: pin,
+        boton: 'Ir a yori',
+        url: URL_APP
+      });
+      guardarPin_(clave, pin);
+      return { codigo: true };
+    }
+    validarPin_(clave, pedido.pin);
+    if (enSupabase_()) {
+      llamar_('select yori.vincular_mail(?, ?, ?, true)::text', [s.id, p.id, p.mailPropuesto]);
+      s = abrir_(pedido.id);
+      p = buscarPersona_(s, p.id);
+    }
     p.mail = p.mailPropuesto;
     if (p.correo) p.correo = p.mailPropuesto;
     p.mailPropuesto = '';
@@ -663,6 +689,27 @@ function rechazarMail_(pedido) {
     var p = personaConToken_(s, pedido.token);
     p.mailPropuesto = '';
     guardar_(s);
+    return {};
+  });
+}
+
+/** La propia persona, o el responsable de un menor, elimina su identidad. */
+function eliminarMisDatos_(pedido) {
+  return conCandado_(function () {
+    var s = abrir_(pedido.id);
+    var p = personaPedida_(s, pedido);
+    if (!enSupabase_()) throw aviso_('Todavía no se puede desde acá. Pedíselo a quien organiza.');
+    llamar_('select yori.eliminar_persona(?, ?)::text', [s.id, p.id]);
+    return {};
+  });
+}
+
+/** Quien organiza elimina el evento completo. */
+function eliminarEvento_(pedido) {
+  return conCandado_(function () {
+    var s = abrirAdmin_(pedido);
+    if (enSupabase_()) llamar_('select yori.eliminar_evento(?)::text', [s.id]);
+    else hoja_().deleteRow(buscarFila_(hoja_(), s.id));
     return {};
   });
 }
@@ -858,7 +905,7 @@ function acceder_(pedido) {
     exigirCupo_(1);
     var lista = [];
     var cambios = [];
-    todos_().forEach(function (s) {
+    (enSupabase_() ? delMail_(mail) : todos_()).forEach(function (s) {
       var antes = lista.length;
       if (s.organizador.mail === mail) {
         var token = nuevoToken_();
@@ -1587,7 +1634,74 @@ function buscarFila_(hoja, id) {
   return 0;
 }
 
+/* ---------- Supabase (schema yori) ----------
+ * Se usa cuando la propiedad ALMACEN es "supabase". Apps Script entra como yori_app, que
+ * solo puede ejecutar las funciones de yori. Los datos van y vienen con la misma forma. */
+
+function enSupabase_() {
+  return PropertiesService.getScriptProperties().getProperty('ALMACEN') === 'supabase';
+}
+
+var conexion_ = null;
+
+function llamar_(sql, valores) {
+  if (!conexion_) {
+    var p = PropertiesService.getScriptProperties();
+    conexion_ = Jdbc.getConnection(p.getProperty('SUPABASE_URL'), p.getProperty('SUPABASE_USUARIO'), p.getProperty('SUPABASE_CLAVE'));
+  }
+  var consulta = conexion_.prepareStatement(sql);
+  try {
+    (valores || []).forEach(function (v, i) {
+      if (typeof v === 'number') consulta.setInt(i + 1, v); else consulta.setString(i + 1, v);
+    });
+    var filas = [];
+    var r = consulta.executeQuery();
+    while (r.next()) filas.push(r.getString(1));
+    r.close();
+    return filas;
+  } catch (error) {
+    var texto = String(error.message || error);
+    var avisos = [
+      ['conflicto', 'Otra persona guardó cambios recién. Recargá y probá de nuevo.'],
+      ['mail sin vincular', 'Ese mail tiene que confirmarse con un código.'],
+      ['organiza un evento', 'Primero eliminá los eventos que organizás.'],
+      ['es responsable de un menor', 'Sos responsable de un menor en un evento vigente. Pedile a quien organiza que lo pase a otro adulto.'],
+      ['sin identidad', 'Esta persona todavía no entró a yori.'],
+      ['participantes_evento_id_persona_id_key', 'Ese mail ya es de otra persona de este sorteo.']
+    ].filter(function (x) { return texto.indexOf(x[0]) !== -1; })[0];
+    if (avisos) throw aviso_(avisos[1]);
+    throw error;
+  } finally {
+    consulta.close();
+  }
+}
+
+/** Las asignaciones viajan como objeto; en el código siguen guardadas como antes. */
+function desdeBase_(texto) {
+  var s = JSON.parse(texto);
+  s.parejas = s.asignaciones ? ocultar_(s.asignaciones) : '';
+  delete s.asignaciones;
+  return s;
+}
+
+function haciaBase_(s) {
+  var copia = JSON.parse(JSON.stringify(s));
+  copia.asignaciones = s.parejas ? mostrar_(s.parejas) : null;
+  delete copia.parejas;
+  delete copia.version;
+  return JSON.stringify(copia);
+}
+
+function delMail_(mail) {
+  return llamar_('select yori.abrir_por_mail(?)::text', [mail]).map(desdeBase_);
+}
+
 function abrir_(id) {
+  if (enSupabase_()) {
+    var texto = llamar_('select yori.abrir(?)::text', [String(id || '')])[0];
+    if (!texto) throw sinAcceso_('Este sorteo no existe o ya se borró.');
+    return desdeBase_(texto);
+  }
   var hoja = hoja_();
   var fila = buscarFila_(hoja, String(id || ''));
   if (!fila) throw sinAcceso_('Este sorteo no existe o ya se borró.');
@@ -1604,6 +1718,10 @@ function todos_() {
 function guardar_(s) {
   var datos = JSON.stringify(s);
   if (datos.length > MAX_DATOS) throw aviso_('El sorteo tiene demasiados datos. Acortá las listas de deseos.');
+  if (enSupabase_()) {
+    s.version = Number(llamar_('select yori.guardar(?::jsonb, ?)::text', [haciaBase_(s), s.version || 0])[0]);
+    return;
+  }
   var hoja = hoja_();
   var fila = buscarFila_(hoja, s.id) || hoja.getLastRow() + 1;
   if (fila > hoja.getMaxRows()) hoja.insertRowAfter(hoja.getMaxRows());
@@ -1613,6 +1731,10 @@ function guardar_(s) {
 
 function borrarVencidos() {
   conCandado_(function () {
+    if (enSupabase_()) {
+      llamar_('select yori.borrar_vencidos()::text');
+      return;
+    }
     var hoja = hoja_();
     var hoy = hoy_();
     for (var fila = hoja.getLastRow(); fila >= 2; fila--) {
@@ -1629,4 +1751,90 @@ function conCandado_(tarea) {
   } finally {
     candado.releaseLock();
   }
+}
+
+/* ---------- Pasaje de la planilla a Supabase ----------
+ * Se ejecutan a mano, desde el editor, en este orden. Ninguna borra la planilla. */
+
+/** Primer paso: autoriza la conexión externa y comprueba usuario y clave. Solo lee; no cambia nada. */
+function probarSupabase() {
+  llamar_('select yori.abrir(?)::text', ['prueba-de-conexion']);
+  console.log('Conexión con Supabase correcta.');
+}
+
+/** Copia a Supabase los sorteos que falten y comprueba cada uno. No cambia lo que usa la app. */
+function migrarASupabase() {
+  var anterior = PropertiesService.getScriptProperties().getProperty('ALMACEN');
+  PropertiesService.getScriptProperties().setProperty('ALMACEN', 'supabase');
+  var informe = { copiados: 0, yaEstaban: 0, iguales: 0, distintos: [], errores: [] };
+  try {
+    conCandado_(function () {
+      todos_().forEach(function (s) {
+        try {
+          if (llamar_('select yori.abrir(?)::text', [s.id])[0]) informe.yaEstaban++;
+          else { delete s.version; guardar_(JSON.parse(JSON.stringify(s))); informe.copiados++; }
+          var campos = diferencias_(normalizar_(s), normalizar_(abrir_(s.id)));
+          if (campos.length) informe.distintos.push(s.id + ': ' + campos.join(', ')); else informe.iguales++;
+        } catch (error) {
+          informe.errores.push(s.id + ': ' + (error.message || error));
+        }
+      });
+    });
+  } finally {
+    PropertiesService.getScriptProperties().setProperty('ALMACEN', anterior || '');
+  }
+  console.log(JSON.stringify(informe)); // solo IDs y nombres de campos: nunca datos
+  return informe;
+}
+
+/** Pasa la app a Supabase. Si algo no coincide, no cambia nada. */
+function usarSupabase() {
+  var informe = migrarASupabase();
+  if (informe.distintos.length || informe.errores.length) throw new Error('No se cambió: revisá el informe.');
+  PropertiesService.getScriptProperties().setProperty('ALMACEN', 'supabase');
+}
+
+/** Vuelve a la planilla con lo último guardado en Supabase. Los eventos creados después del cambio no vuelven. */
+function volverAPlanilla() {
+  var props = PropertiesService.getScriptProperties();
+  props.setProperty('ALMACEN', 'supabase');
+  props.setProperty('ALMACEN', '');
+  var ids = todos_().map(function (s) { return s.id; });
+  props.setProperty('ALMACEN', 'supabase');
+  var lista = [];
+  conCandado_(function () {
+    ids.forEach(function (id) { var x = llamar_('select yori.abrir(?)::text', [id])[0]; if (x) lista.push(desdeBase_(x)); });
+  });
+  props.setProperty('ALMACEN', '');
+  conCandado_(function () { lista.forEach(function (s) { delete s.version; guardar_(s); }); });
+}
+
+/** La misma lectura que usa la app, para comparar sin depender del formato guardado. */
+function normalizar_(s) {
+  var t = function (x) { return x || ''; };
+  return {
+    id: s.id, estado: s.estado, reglaFamilia: s.reglaFamilia === true, propuestas: s.propuestas === true,
+    organizador: s.organizador, admin: s.admin, admins: s.admins || [], parejas: s.parejas ? mostrar_(s.parejas) : null,
+    evento: { nombre: s.evento.nombre, fecha: s.evento.fecha, presupuesto: s.evento.presupuesto === null || s.evento.presupuesto === undefined ? null : Number(s.evento.presupuesto), mensaje: t(s.evento.mensaje), modalidad: s.evento.modalidad || 'A' },
+    personas: s.personas.map(function (p) {
+      return {
+        id: p.id, nombre: p.nombre, tipo: p.tipo, telefono: t(p.telefono), correo: t(p.correo), mail: t(p.mail), mailPropuesto: t(p.mailPropuesto),
+        validada: t(p.validada), reinicio: t(p.reinicio), envio: t(p.envio), entro: !!p.entro, vio: !!p.vio, pareja: t(p.pareja), responsable: t(p.responsable),
+        padres: p.padres || [], gestores: (p.gestores || []).slice().sort(), enlace: t(p.enlace), pin: t(p.pin), fallos: p.pin ? p.fallos || 0 : 0, sesiones: p.sesiones || [],
+        deseos: typeof p.deseos === 'string' ? p.deseos : leerLista_(p.deseos)
+      };
+    }),
+    exclusiones: s.exclusiones, descartadas: s.descartadas || [], especiales: s.especiales || [], enlacesFamilia: s.enlacesFamilia || []
+  };
+}
+
+function diferencias_(a, b) {
+  return Object.keys(a).filter(function (k) { return canonico_(a[k]) !== canonico_(b[k]); });
+}
+
+/** JSON con las claves ordenadas: la base no conserva el orden de las claves. */
+function canonico_(x) {
+  if (Array.isArray(x)) return '[' + x.map(canonico_).join(',') + ']';
+  if (x && typeof x === 'object') return '{' + Object.keys(x).sort().map(function (k) { return JSON.stringify(k) + ':' + canonico_(x[k]); }).join(',') + '}';
+  return JSON.stringify(x === undefined ? null : x);
 }
