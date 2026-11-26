@@ -80,6 +80,7 @@ var ACCIONES_ = {
   pedirPin: pedirPin_,
   entrar: entrar_,
   pedirLink: pedirLink_,
+  familia: familia_,
   acceder: acceder_,
   // Quien organiza
   admin: function (p) { return verAdmin_(abrirAdmin_(p)); },
@@ -104,6 +105,7 @@ var ACCIONES_ = {
   reenviar: reenviar_,
   invitar: invitar_,
   simular: simular_,
+  linkFamilia: linkFamilia_,
   pedirEmergencia: pedirEmergencia_,
   verSorteo: verSorteo_,
   // Participantes
@@ -113,6 +115,7 @@ var ACCIONES_ = {
   guardarPerfil: guardarPerfil_,
   quitarPerfil: quitarPerfil_,
   dejarDeCompartir: dejarDeCompartir_,
+  compartirGestion: compartirGestion_,
   confirmarMail: confirmarMail_,
   rechazarMail: rechazarMail_
 };
@@ -356,13 +359,14 @@ function editarPersona_(s, pedido) {
   }
   var responsable = leerResponsable_(s, pedido, tipo, p.id);
   var contacto = leerContacto_(pedido, responsable);
-  if (p.validada && responsable) throw aviso_('Ya validó su acceso. Si va a quedar a cargo de otra persona, primero usá Liberar.');
+  if (p.validada && responsable && !p.responsable) throw aviso_('Ya validó su acceso. Si va a quedar a cargo de otra persona, primero usá Liberar.');
   if (p.validada && contacto.correo !== (p.correo || '')) throw aviso_('Ya validó su mail. Para corregirlo usá Corregir mail; si cambia la persona, usá Liberar.');
   if ((p.responsable || '') !== responsable && (p.responsable || tieneLista_(p))) {
     if (pedido.vaciar !== true) throw aviso_('Cambia el responsable de ' + p.nombre + '. Para seguir hay que confirmarlo: si tiene deseos cargados, se borran.');
     p.deseos = '';
   }
-  if (responsable || contacto.correo !== p.correo) quitarAccesos_(p);
+  if (responsable !== (p.responsable || '')) p.gestores = [];
+  if (contacto.correo !== (p.correo || '')) quitarAccesos_(p);
   p.telefono = contacto.telefono;
   p.correo = contacto.correo;
   p.nombre = nombre;
@@ -382,7 +386,8 @@ function leerResponsable_(s, pedido, tipo, idPropio) {
 
 /** Mail, teléfono o los dos. Con mail recibe link y PIN; sin mail, entra con su teléfono. */
 function leerContacto_(pedido, responsable) {
-  if (responsable) return { telefono: '', correo: '' };
+  // Un menor puede tener mail y acceso propio; igual sigue a cargo de su responsable.
+  if (responsable) return { telefono: '', correo: validarMail_(pedido.correo) };
   var correo = validarMail_(pedido.correo);
   var telefono = correo && !pedido.telefono ? '' : validarTelefono_(pedido.telefono);
   return { telefono: telefono, correo: correo };
@@ -556,7 +561,9 @@ function quitarPersona_(s, pedido) {
   s.personas.forEach(function (x) {
     if (x.pareja === p.id) x.pareja = '';
     if (x.padres) x.padres = x.padres.filter(function (id) { return id !== p.id; });
+    if (x.gestores) x.gestores = x.gestores.filter(function (id) { return id !== p.id; });
   });
+  s.enlacesFamilia = (s.enlacesFamilia || []).filter(function (e) { return e.ancla !== p.id; });
   limpiarDescartes_(s);
 }
 
@@ -594,9 +601,9 @@ function limpiarExclusiones_(s) {
 
 function corregirTelefono_(s, pedido) {
   var p = buscarPersona_(s, pedido.persona);
-  if (p.responsable) throw aviso_('Esta persona está a cargo de un adulto.');
+  if (p.responsable && !p.correo) throw aviso_('Esta persona está a cargo de un adulto.');
   if (p.validada) throw aviso_('Este nombre ya fue validado.');
-  var contacto = leerContacto_(pedido, '');
+  var contacto = leerContacto_(pedido, p.responsable);
   if (contacto.correo !== p.correo) quitarAccesos_(p);
   p.telefono = contacto.telefono;
   p.correo = contacto.correo;
@@ -612,7 +619,10 @@ function liberar_(s, pedido) {
   // Cambia quién ocupa el lugar: no recibe nada de lo que cargó la persona anterior.
   p.mailPropuesto = '';
   p.deseos = '';
-  s.personas.forEach(function (x) { if (x.responsable === p.id) x.deseos = ''; });
+  s.personas.forEach(function (x) {
+    if (x.responsable === p.id) x.deseos = '';
+    if (x.gestores) x.gestores = x.gestores.filter(function (id) { return id !== p.id; });
+  });
 }
 
 /* Corregir el mail de quien ya validó: lo propone quien organiza y lo confirma la propia
@@ -763,7 +773,7 @@ function grupo_(pedido) {
   return {
     organizador: s.organizador.nombre,
     encuentro: s.evento.nombre,
-    personas: s.personas.filter(function (p) { return !p.responsable; }).map(function (p) {
+    personas: s.personas.filter(function (p) { return !p.responsable || p.correo; }).map(function (p) {
       return { id: p.id, nombre: p.nombre, validada: !!p.validada, conMail: !!p.correo };
     })
   };
@@ -856,7 +866,7 @@ function acceder_(pedido) {
         lista.push({ texto: s.evento.nombre + ', que organizás', url: URL_APP + '#/a/' + s.id + '/' + token });
       }
       s.personas.forEach(function (p) {
-        if (p.responsable) return;
+        if (p.responsable && !p.correo) return;
         if (p.validada && p.mail === mail) {
           var envio = p.envio;
           lista.push({ texto: s.evento.nombre + ', como ' + p.nombre, url: URL_APP + '#/s/' + s.id + '/' + darLink_(p) });
@@ -885,7 +895,7 @@ function acceder_(pedido) {
 
 function personaLibre_(s, id) {
   var p = buscarPersona_(s, id);
-  if (p.responsable) throw aviso_('Esta persona está a cargo de un adulto.');
+  if (p.responsable && !p.correo) throw aviso_('Esta persona está a cargo de un adulto.');
   if (p.validada) throw aviso_('Este nombre ya fue validado. Si no fuiste vos, avisale a quien organiza.');
   return p;
 }
@@ -979,6 +989,49 @@ function verSorteo_(pedido) {
   });
 }
 
+/* ---------- Link familiar ----------
+ * Un solo link por familia: muestra qué regala cada integrante y las preferencias de quien
+ * recibe. Solo esa familia; no cambia asignaciones. Generar otro anula el anterior. */
+
+function linkFamilia_(pedido) {
+  return conCandado_(function () {
+    var s = abrirAdmin_(pedido);
+    var ancla = buscarPersona_(s, pedido.persona);
+    if (ancla.tipo !== 'adulto') throw aviso_('Elegí un adulto de la familia.');
+    var token = nuevoToken_();
+    s.enlacesFamilia = (s.enlacesFamilia || []).filter(function (e) { return e.ancla !== ancla.id; }).concat({ ancla: ancla.id, huella: huella_(token) });
+    guardar_(s);
+    return { url: URL_APP + '#/f/' + s.id + '/' + token };
+  });
+}
+
+function familia_(pedido) {
+  return conCandado_(function () {
+    var s = abrir_(pedido.id);
+    var h = huella_(pedido.token);
+    var enlace = (s.enlacesFamilia || []).filter(function (e) { return e.huella === h; })[0];
+    if (!enlace) throw sinAcceso_('Este link familiar ya no es válido. Pedile uno nuevo a quien organiza.');
+    var grupo = familias_(s);
+    var miembros = s.personas.filter(function (p) { return grupo[p.id] === grupo[enlace.ancla]; });
+    var sorteado = s.estado === 'sorteado';
+    var parejas = sorteado ? mostrar_(s.parejas) : {};
+    var regalan = miembros.filter(function (p) { return sorteado && regalosDe_(s, parejas, p.id).length; });
+    var revelar = pedido.revelar === true || regalan.some(function (p) { return p.vio; });
+    if (revelar && regalan.some(function (p) { return !p.vio; })) {
+      regalan.forEach(function (p) { p.vio = true; });
+      guardar_(s);
+    }
+    return {
+      encuentro: s.evento.nombre, fecha: s.evento.fecha, organizador: s.organizador.nombre, sorteado: sorteado,
+      miembros: miembros.map(function (p) { return { nombre: p.nombre, tipo: p.tipo }; }),
+      revelado: revelar && regalan.length > 0,
+      regalos: !revelar ? [] : regalan.map(function (p) {
+        return { de: p.nombre, a: regalosDe_(s, parejas, p.id).map(function (x) { return verRegalo_(s, x); }) };
+      })
+    };
+  });
+}
+
 function ocultarMail_(mail) {
   var partes = mail.split('@');
   return partes[0].slice(0, 1) + '•••@' + partes[1];
@@ -1002,8 +1055,18 @@ function yo_(pedido) {
     evento: { nombre: s.evento.nombre, fecha: s.evento.fecha, presupuesto: s.evento.presupuesto, mensaje: s.evento.mensaje, modalidad: s.evento.modalidad },
     sorteado: s.estado === 'sorteado',
     regala: regala_(s, p),
-    aCargo: s.personas.filter(function (x) { return x.responsable === p.id; }).map(function (x) {
-      return { persona: x.id, nombre: x.nombre, deseos: textoDeseos_(x), lista: leerLista_(x.deseos), regala: regala_(s, x) };
+    vio: p.vio === true,
+    aCargo: s.personas.filter(function (x) { return gestiona_(x, p); }).map(function (x) {
+      var con = s.personas.filter(function (y) { return y.tipo === 'adulto' && y.id !== p.id && (y.id === p.pareja || (x.padres || []).indexOf(y.id) !== -1); });
+      return {
+        persona: x.id, nombre: x.nombre, deseos: textoDeseos_(x), lista: leerLista_(x.deseos), regala: regala_(s, x), vio: x.vio === true,
+        responsable: x.responsable === p.id ? '' : (buscarPersona_(s, x.responsable).nombre),
+        compartible: x.responsable !== p.id ? [] : con.map(function (y) { return { persona: y.id, nombre: y.nombre, activo: (x.gestores || []).indexOf(y.id) !== -1 }; })
+      };
+    }),
+    // Hijos que están a cargo de otro adulto, para explicar por qué no aparecen.
+    deOtro: s.personas.filter(function (x) { return (x.padres || []).indexOf(p.id) !== -1 && !gestiona_(x, p) && x.responsable; }).map(function (x) {
+      return { nombre: x.nombre, responsable: buscarPersona_(s, x.responsable).nombre };
     }),
     // Los especiales adicionales no son sorpresa para quien los da.
     especiales: s.estado !== 'sorteado' ? [] : regalosDe_(s, {}, p.id).map(function (x) { return verRegalo_(s, x); }),
@@ -1025,8 +1088,30 @@ function personaPedida_(s, pedido) {
   var yo = personaConToken_(s, pedido.token);
   if (!pedido.persona || pedido.persona === yo.id) return yo;
   var otra = buscarPersona_(s, pedido.persona);
-  if (otra.responsable !== yo.id) throw aviso_('Esta persona no está a tu cargo.');
+  if (!gestiona_(otra, yo)) throw aviso_('Esta persona no está a tu cargo.');
   return otra;
+}
+
+/** El responsable, o un adulto de la familia con quien compartió la gestión. */
+function gestiona_(menor, adulto) {
+  return menor.responsable === adulto.id || (menor.gestores || []).indexOf(adulto.id) !== -1;
+}
+
+/** El responsable comparte, o deja de compartir, la gestión de un menor con su pareja o el otro progenitor. */
+function compartirGestion_(pedido) {
+  return conCandado_(function () {
+    var s = abrir_(pedido.id);
+    var yo = personaConToken_(s, pedido.token);
+    var menor = buscarPersona_(s, pedido.persona);
+    if (menor.responsable !== yo.id) throw aviso_('Solo el responsable puede compartir la gestión.');
+    var otro = buscarPersona_(s, pedido.con);
+    if (otro.tipo !== 'adulto' || otro.id === yo.id || (yo.pareja !== otro.id && (menor.padres || []).indexOf(otro.id) === -1)) {
+      throw aviso_('Solo se comparte con tu pareja o con su otro progenitor.');
+    }
+    menor.gestores = (menor.gestores || []).filter(function (id) { return id !== otro.id; }).concat(pedido.activo === true ? [otro.id] : []);
+    guardar_(s);
+    return {};
+  });
 }
 
 function descubrir_(pedido) {

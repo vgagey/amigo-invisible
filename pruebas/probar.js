@@ -600,7 +600,8 @@ test('relaciones: no dan permisos y hay un único responsable', () => {
   const nico = s.por('Nico').id;
   guardarPerfil(g, a, perfil({ recibir: 'de Nico' }), { persona: nico });
   const yoB = g.pedir({ accion: 'yo', ...b }).datos;
-  assert.ok(yoB.aCargo.length === 0 && !JSON.stringify(yoB).includes('Nico'), 'el otro progenitor no ve nada');
+  assert.ok(yoB.aCargo.length === 0 && !JSON.stringify(yoB.aCargo).includes('Nico') && !JSON.stringify(yoB).includes('de Nico'), 'el otro progenitor no ve su lista');
+  assert.deepEqual(yoB.deOtro, [{ nombre: 'Nico', responsable: 'Ana' }], 'solo sabe quién es el responsable');
   for (const accion of ['descubrir', 'guardarPerfil', 'dejarDeCompartir']) assert.match(g.pedir({ accion, ...b, persona: nico, datos: perfil() }).error, /no está a tu cargo/);
   assert.match(guardarPerfil(g, b, perfil(), { perfil: 'nuevo', nombre: 'nico' }).error, /tiene un responsable/, 'no lo incorpora de nuevo');
   const emma = guardarPerfil(g, a, perfil(), { perfil: 'nuevo', nombre: 'Emma' });
@@ -1118,3 +1119,78 @@ test('personajes favoritos: se guardan, los ve quien regala y una página vieja 
   assert.match(guardarPerfil(g, a, perfil({ recibir: 'x'.repeat(300), personajes: 'y'.repeat(300) })).error, /máximo/);
 });
 
+
+test('menores: mail propio y gestión compartida en la familia', () => {
+  const g = cargar('https://app/');
+  const s = armar(g, [{ nombre: 'Ana', correo: 'ana@x.com' }, { nombre: 'Beto', correo: 'beto@x.com' }, { nombre: 'Caro', correo: 'caro@x.com' }]);
+  const [ana, beto, caro] = ['Ana', 'Beto', 'Caro'].map((n) => s.por(n).id);
+  s.ad('editarPersona', { persona: ana, nombre: 'Ana', tipo: 'adulto', correo: 'ana@x.com', pareja: beto });
+  let r = s.ad('agregarPersona', { nombre: 'Mia', tipo: 'nino', responsable: ana, padre1: ana, padre2: beto, correo: 'mia@x.com' });
+  assert.ok(r.ok, r.error);
+  s.ad('agregarPersona', { nombre: 'Leo', tipo: 'nino', responsable: ana, padre1: ana, padre2: beto });
+  const mia = s.por('Mia').id, leo = s.por('Leo').id;
+  assert.equal(s.por('Mia').correo, 'mia@x.com', 'un menor puede tener su mail');
+  assert.ok(g.pedir({ accion: 'grupo', id: s.id }).datos.personas.some((p) => p.nombre === 'Mia'), 'y elegir su nombre');
+  assert.ok(!g.pedir({ accion: 'grupo', id: s.id }).datos.personas.some((p) => p.nombre === 'Leo'), 'sin mail lo gestiona su responsable');
+  s.ad('invitar');
+  const entra = (n, m) => ({ id: s.id, token: s.entrar(n, '', s.pinDe(m)).datos.token });
+  const m = entra('Mia', 'mia@x.com'), a = entra('Ana', 'ana@x.com'), b = entra('Beto', 'beto@x.com'), c = entra('Caro', 'caro@x.com');
+  assert.ok(s.por('Mia').validada);
+  assert.equal(s.por('Mia').responsable, ana, 'con acceso propio mantiene a su responsable');
+  assert.ok(guardarPerfil(g, m, perfil({ recibir: 'de Mia' })).ok, 'carga lo suyo');
+  assert.ok(guardarPerfil(g, a, perfil({ recibir: 'de Ana para Mia' }), { persona: mia }).ok, 'su responsable también');
+  assert.match(guardarPerfil(g, m, perfil(), { persona: leo }).error, /no está a tu cargo/, 'el menor no gestiona a otros');
+  assert.ok(s.ad('editarPersona', { persona: mia, nombre: 'Mia', tipo: 'nino', responsable: ana, padre1: ana, padre2: beto, correo: 'mia@x.com' }).ok, 'editarla no corta su acceso');
+  assert.ok(g.pedir({ accion: 'yo', ...m }).ok);
+  // Gestión compartida: la decide el responsable, solo con su pareja o el otro progenitor
+  let yb = g.pedir({ accion: 'yo', ...b }).datos;
+  assert.deepEqual([yb.aCargo.length, yb.deOtro.map((x) => x.responsable)], [0, ['Ana', 'Ana']]);
+  assert.match(g.pedir({ accion: 'compartirGestion', ...b, persona: leo, con: beto, activo: true }).error, /Solo el responsable/);
+  assert.match(g.pedir({ accion: 'compartirGestion', ...a, persona: leo, con: caro, activo: true }).error, /pareja o con su otro progenitor/);
+  assert.deepEqual(g.pedir({ accion: 'yo', ...a }).datos.aCargo.find((x) => x.nombre === 'Leo').compartible, [{ persona: beto, nombre: 'Beto', activo: false }]);
+  assert.ok(g.pedir({ accion: 'compartirGestion', ...a, persona: leo, con: beto, activo: true }).ok);
+  yb = g.pedir({ accion: 'yo', ...b }).datos;
+  assert.deepEqual([yb.aCargo.map((x) => [x.nombre, x.responsable]), yb.deOtro.map((x) => x.nombre)], [[['Leo', 'Ana']], ['Mia']]);
+  assert.ok(guardarPerfil(g, b, perfil({ recibir: 'de Beto para Leo' }), { persona: leo }).ok, 'quien gestiona carga sus datos');
+  assert.equal(g.pedir({ accion: 'yo', ...a }).datos.aCargo.find((x) => x.nombre === 'Leo').lista.recibir, 'de Beto para Leo', 'y la familia ve lo mismo');
+  assert.match(g.pedir({ accion: 'compartirGestion', ...b, persona: leo, con: ana, activo: false }).error, /Solo el responsable/, 'no puede sacar al responsable');
+  assert.match(g.pedir({ accion: 'yo', ...c }).datos.deOtro.length ? 'mal' : 'bien', /bien/);
+  assert.ok(g.pedir({ accion: 'compartirGestion', ...a, persona: leo, con: beto, activo: false }).ok);
+  assert.match(guardarPerfil(g, b, perfil(), { persona: leo }).error, /no está a tu cargo/, 'al dejar de compartir, se corta');
+  g.pedir({ accion: 'compartirGestion', ...a, persona: leo, con: beto, activo: true });
+  s.ad('liberar', { persona: beto });
+  assert.deepEqual(leerFila(g, s.id).personas.find((p) => p.id === leo).gestores, [], 'liberar el lugar quita la gestión');
+});
+
+test('link familiar: un solo link muestra los regalos de esa familia y de ninguna otra', () => {
+  const g = cargar('https://app/');
+  const { s, id, familia } = cuatroFamilias(g);
+  assert.ok(s.ad('guardarEspecial', { de: id('A2'), a: id('hb3'), modo: 'adicional' }).ok);
+  const r = s.ad('linkFamilia', { persona: id('A1') });
+  assert.ok(r.ok, r.error);
+  assert.match(s.ad('linkFamilia', { persona: id('ha1') }).error, /adulto/);
+  assert.equal(g.pedir({ accion: 'linkFamilia', id: s.id, token: 'x', persona: id('A1') }).sinAcceso, true, 'solo quien organiza');
+  const [, ev, token] = r.datos.url.match(/#\/f\/(\w+)\/(\w+)/);
+  const ver = (x) => g.pedir({ accion: 'familia', id: ev, token, ...x });
+  let v = ver().datos;
+  assert.deepEqual([v.sorteado, v.revelado, v.regalos, v.miembros.map((m) => m.nombre).sort()], [false, false, [], ['A1', 'A2', 'ha1', 'ha2']]);
+  assert.ok(s.ad('sortear').ok);
+  v = ver().datos;
+  assert.deepEqual([v.revelado, v.regalos.length], [false, 0], 'primero se revela a propósito');
+  const antes = leerFila(g, s.id).parejas;
+  v = ver({ revelar: true }).datos;
+  assert.deepEqual(v.regalos.map((x) => x.de).sort(), ['A1', 'A2'], 'en esta modalidad regalan los adultos');
+  for (const x of v.regalos) for (const y of x.a) assert.notEqual(familia(y.nombre), 'A', 'nadie de su familia');
+  const a2 = v.regalos.find((x) => x.de === 'A2').a;
+  assert.deepEqual(a2.filter((y) => y.especial).map((y) => y.nombre), ['hb3'], 'el especial se ve aparte');
+  assert.equal(v.regalos.flatMap((x) => x.a).length, 5);
+  assert.equal(leerFila(g, s.id).parejas, antes, 'no cambia asignaciones');
+  assert.deepEqual(['A1', 'A2', 'B1'].map((n) => s.por(n).vio), [true, true, false], 'cuenta como visto solo en esa familia');
+  assert.ok(ver().datos.revelado, 'después se ve directo');
+  const b = s.ad('linkFamilia', { persona: id('B1') }).datos.url.match(/#\/f\/\w+\/(\w+)/)[1];
+  assert.ok(!JSON.stringify(g.pedir({ accion: 'familia', id: ev, token: b }).datos).includes('"A1"'), 'otra familia no ve esta');
+  s.ad('linkFamilia', { persona: id('A2') });
+  assert.equal(ver().ok, true, 'cada link es de su adulto');
+  s.ad('linkFamilia', { persona: id('A1') });
+  assert.equal(ver().sinAcceso, true, 'generar otro anula el anterior');
+});

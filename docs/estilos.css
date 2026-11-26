@@ -236,6 +236,7 @@ button.especial:hover { transform: translateY(-3px); box-shadow: 0 14px 30px rgb
 .pistas dt { margin-top: 8px; }
 .cierre { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 20px; margin-top: auto; }
 .grupo { display: flex; flex-direction: column; gap: 8px; }
+.grupo > .pistas { margin: 0; max-width: none; }
 
 @keyframes onda { from { transform: none; } to { transform: translate(-2.5%, 1.8%) scale(1.05); } }
 @keyframes respirar { 0%, 100% { transform: none; } 50% { transform: scale(1.05) rotate(8deg); } }

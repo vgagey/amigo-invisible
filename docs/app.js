@@ -237,6 +237,7 @@ async function navegar() {
     else if (ruta === 'g') await pantallaGrupo(id, extra, vigente);
     else if (ruta === 's') await abrirLink(id, extra, vigente);
     else if (ruta === 'm') await pantallaRegalo(id, extra, vigente);
+    else if (ruta === 'f') await pantallaFamilia(id, extra, vigente);
     else if (ruta === 'navidad') pantallaNavidad();
     else if (ruta === 'crear') pantallaCrear();
     else if (ruta === 'portal' || (!ruta && location.hash !== '#/' && sesiones.length)) pantallaPortal();
@@ -294,9 +295,9 @@ function pantallaPortal() {
       h('div', { class: 'partes entra e3' },
         h('div', {}, h('h3', {}, 'Mis sorteos'),
           sesiones.length
-            ? sesiones.map((s) => h('a', { class: 'fila', href: s.admin ? `#/a/${s.id}/${s.token}` : `#/m/${s.id}/${s.persona}` },
+            ? sesiones.map((s) => h('a', { class: 'fila', href: s.admin ? `#/a/${s.id}/${s.token}` : s.familia ? `#/f/${s.id}/${s.token}` : `#/m/${s.id}/${s.persona}` },
               h('span', {}, s.encuentro || 'Amigo Invisible'),
-              h('span', { class: 'suave' }, h('span', {}, s.admin ? 'Organizás' : s.nombre), s.fecha ? h('span', {}, fechaCorta(s.fecha)) : null, icono('seguir'))))
+              h('span', { class: 'suave' }, h('span', {}, s.admin ? 'Organizás' : s.familia ? 'Familia' : s.nombre), s.fecha ? h('span', {}, fechaCorta(s.fecha)) : null, icono('seguir'))))
             : h('a', { class: 'enlace', href: '#/' }, 'Entrar con mi mail')),
         h('div', {}, h('h3', {}, 'Próximamente'),
           h('div', { class: 'dos' }, PROXIMAS.map(([dib, texto]) => h('div', { class: 'prox' }, icono(dib), texto)))))));
@@ -460,6 +461,7 @@ async function pantallaAdmin(id, token, vigente) {
   }
 
   function estadoPersona(p) {
+    if (p.responsable && p.correo && abierto()) return p.validada ? ['Entró · a cargo de ' + nombreDe(p.responsable), 'verde'] : [sinValidar(p)[0] + ' · a cargo de ' + nombreDe(p.responsable), 'ambar'];
     if (p.responsable && !(regala(p) && !abierto())) return ['A cargo de ' + nombreDe(p.responsable), 'suave'];
     if (!abierto()) {
       if (regala(p) && p.vio) return ['Vio su regalo', 'verde'];
@@ -540,6 +542,7 @@ async function pantallaAdmin(id, token, vigente) {
         mayores.length ? elegir('pareja', 'Pareja', p.pareja) : null)));
     const deMenor = h('div', { class: 'plegado' }, mayores.length ? [
       campo('A cargo de', selector({ name: 'responsable' }, [['', 'Elegir'], ...mayores], p.responsable || '')),
+      p.validada ? h('input', { type: 'hidden', name: 'correoMenor', value: p.correo }) : campo('Mail (opcional, para que entre por su cuenta)', h('input', { name: 'correoMenor', type: 'email', maxlength: 100, autocomplete: 'off', value: p.correo || '' })),
       h('details', {}, h('summary', {}, 'Más datos'), h('div', { class: 'dos' }, [0, 1].map((i) => elegir('padre' + (i + 1), 'Madre / Padre', (p.padres || [])[i]))))]
       : h('p', { class: 'ambar chico' }, 'Primero sumá al adulto que va a ser su responsable.'));
     const acomodar = (tipo) => { deAdulto.hidden = tipo === 'nino'; deMenor.hidden = tipo !== 'nino'; };
@@ -547,7 +550,7 @@ async function pantallaAdmin(id, token, vigente) {
     const form = formulario(aviso, async (d) => {
       const nino = d.tipo === 'nino';
       if (nino && !confirmaResponsable(p, d.responsable)) return;
-      await guardarPersona(p, nino ? { nombre: d.nombre, tipo: 'nino', responsable: d.responsable || '', padre1: d.padre1 || '', padre2: d.padre2 || '' }
+      await guardarPersona(p, nino ? { nombre: d.nombre, tipo: 'nino', responsable: d.responsable || '', correo: d.correoMenor || '', padre1: d.padre1 || '', padre2: d.padre2 || '' }
         : { nombre: d.nombre, tipo: 'adulto', correo: d.correo, telefono: d.telefono, pareja: d.pareja });
       if (p.id) return d_.close();
       // Queda abierta para seguir sumando.
@@ -620,11 +623,13 @@ async function pantallaAdmin(id, token, vigente) {
     const sueltos = s.personas.filter((x) => x.tipo === 'nino' && !x.padres.length);
     const quien = !p.id && sueltos.length ? selector({ name: 'existe', onchange: () => acomodar() }, [['', 'Niño nuevo'], ...sueltos.map((x) => [x.id, x.nombre])], '') : null;
     const nombre = campo('Nombre', h('input', { name: 'nombre', maxlength: 40, autocomplete: 'off', value: p.nombre || '' }));
+    const mail = p.validada ? null : campo('Mail (opcional, para que entre por su cuenta)', h('input', { name: 'correo', type: 'email', maxlength: 100, autocomplete: 'off', value: p.correo || '' }));
     const posibles = (x) => [...mayores, ...adultos().filter((a) => a.id === x.responsable && !mayores.includes(a))].map((a) => [a.id, a.nombre]);
     const responsable = h('select', { name: 'responsable' });
     const acomodar = () => {
       const x = s.personas.find((y) => y.id === quien?.value) || p;
       nombre.hidden = !!quien?.value;
+      if (mail) mail.hidden = !!quien?.value;
       responsable.replaceChildren(...selector({}, [['', 'Elegir'], ...posibles(x)], x.responsable || '').children);
       responsable.value = x.responsable || '';
     };
@@ -633,10 +638,10 @@ async function pantallaAdmin(id, token, vigente) {
       const actual = s.personas.find((y) => y.id === x.existe) || p;
       if (!confirmaResponsable(actual, x.responsable)) return;
       const padres = p.id ? p.padres : mayores.map((m) => m.id);
-      await guardarPersona(actual, { tipo: 'nino', nombre: x.existe ? actual.nombre : x.nombre, responsable: x.responsable, padre1: padres[0] || '', padre2: padres[1] || '' });
+      await guardarPersona(actual, { tipo: 'nino', nombre: x.existe ? actual.nombre : x.nombre, responsable: x.responsable, correo: x.existe ? actual.correo : (x.correo ?? actual.correo ?? ''), padre1: padres[0] || '', padre2: padres[1] || '' });
       d.close();
     },
-      quien ? campo('Quién es', quien) : null, nombre, campo('Responsable', responsable),
+      quien ? campo('Quién es', quien) : null, nombre, mail, campo('Responsable', responsable),
       h('p', { class: 'chico suave' }, 'Solo el responsable gestiona su participación.'), aviso, enviar(p.id ? 'Guardar' : 'Sumar')));
   }
 
@@ -666,6 +671,23 @@ async function pantallaAdmin(id, token, vigente) {
     }, uno(1, 'Adulto', false), uno(2, 'Pareja', true), aviso, enviar('Sumar')));
   }
 
+  /** Un solo link para toda la familia: muestra sus regalos. También sirve para verificarlos. */
+  function linkFamiliar(mayores) {
+    const nombres = mayores.map((p) => p.nombre).join(' y ');
+    if (!confirm(`¿Generar el link familiar de ${nombres}? Quien lo tenga ve los regalos de toda esa familia. Si ya había uno, deja de servir.`)) return;
+    pedirAdmin('linkFamilia', { persona: mayores[0].id }).then(({ url }) => {
+      const aviso = zonaAviso();
+      const texto = `${s.evento.nombre}: con este link ves los regalos de tu familia. ${url}`;
+      ventana('Link familiar',
+        h('p', {}, `Mandalo a ${nombres}. Muestra qué le regala cada integrante y las preferencias de quien recibe. No cambia nada del sorteo.`),
+        h('div', { class: 'acciones' },
+          h('a', { class: 'boton', href: 'https://wa.me/?text=' + encodeURIComponent(texto), target: '_blank', rel: 'noopener' }, 'WhatsApp'),
+          enlace('Copiar link', async () => { try { await navigator.clipboard.writeText(url); aviso.decir('Copiado', 'verde'); } catch { aviso.decir(url); } }),
+          h('a', { class: 'enlace', href: url, target: '_blank', rel: 'noopener' }, 'Ver como la familia')),
+        aviso);
+    }, (error) => ventana('No se pudo generar', h('p', {}, error.message)));
+  }
+
   function pintarFamilias() {
     const aviso = zonaAviso();
     const n = adultos().length, m = s.personas.length - n;
@@ -679,6 +701,7 @@ async function pantallaAdmin(id, token, vigente) {
         hijos.length || abierto() ? h('div', { class: 'hijos' },
           hijos.map((p) => h('div', { class: 'rama' }, per(p, '', () => formularioHijo(p.padres.length ? adultos().filter((a) => p.padres.includes(a.id)) : mayores, p)))),
           abierto() ? h('div', { class: 'rama' }, h('button', { type: 'button', class: 'per mas', 'aria-label': 'Sumar hijo', onclick: () => formularioHijo(mayores.slice(0, 2)) }, '+')) : null) : null);
+      cuerpo.append(h('div', { class: 'acciones', style: 'justify-content: center' }, enlace('Link familiar', () => linkFamiliar(mayores))));
       const boton = h('button', {
         type: 'button', class: 'fila', 'aria-expanded': String(!cerradas.has(clave)), onclick: () => {
           if (!cerradas.delete(clave)) cerradas.add(clave);
@@ -1074,7 +1097,7 @@ async function pantallaAdmin(id, token, vigente) {
 /* ---------- Participantes ---------- */
 
 async function pantallaGrupo(id, extra, vigente) {
-  const propias = sesiones.filter((s) => s.id === id && !s.admin);
+  const propias = sesiones.filter((s) => s.id === id && !s.admin && !s.familia);
   if (propias.some((s) => s.persona === extra)) return ir(`#/m/${id}/${extra}`);
   if (propias.length === 1 && !extra) return ir(`#/m/${id}/${propias[0].persona}`);
   cargando();
@@ -1283,7 +1306,7 @@ function verPistas(pistas, adulto) {
 }
 
 async function pantallaRegalo(id, persona, vigente) {
-  const sesion = sesiones.find((s) => s.id === id && s.persona === persona && !s.admin);
+  const sesion = sesiones.find((s) => s.id === id && s.persona === persona && !s.admin && !s.familia);
   if (!sesion) return ir(`#/g/${id}/elegir`);
   cargando();
   const acceso = { id, token: sesion.token };
@@ -1297,20 +1320,23 @@ async function pantallaRegalo(id, persona, vigente) {
   if (!vigente()) return;
   recordar({ ...sesion, nombre: yo.nombre, encuentro: yo.evento.nombre, fecha: yo.evento.fecha });
   const editable = yo.editable !== false;
-  const especiales = yo.especiales || [];
+  const dib = (estilo) => NAVIDAD.decoracion ? imagen('flota', NAVIDAD.regalo, estilo) : null;
 
-  /** Descubrir y ocultar el regalo propio o el de un menor a cargo. */
-  function zonaRegalo(quien, esOtro) {
-    const zona = h('div', { style: 'display: flex; flex: 1' });
+  /* ---------- Revelaciones: qué regala cada uno y a quién ---------- */
+
+  /** Lo que regala una persona (yo o un menor a cargo). La primera vez se mantiene para revelar; después se ve directo. */
+  function regalosDe(quien, esYo) {
+    const zona = h('div', { class: 'grupo' });
+    const quienRegala = esYo ? 'Vos le regalás a' : `${quien.nombre} le regala a`;
     const caja = (...hijos) => zona.replaceChildren(h('div', { class: 'caja entra' }, hijos));
-    const dib = (estilo) => NAVIDAD.decoracion ? imagen('flota', NAVIDAD.regalo, estilo) : null;
 
     function cerrado() {
       const aviso = zonaAviso();
       let reloj;
       const abrir = () => ejecutar(boton, aviso, async () => {
         boton.classList.remove('tocando');
-        mostrarRegalos(await pedir('descubrir', { ...acceso, persona: quien.persona }));
+        quien.vio = true;
+        mostrar(await pedir('descubrir', { ...acceso, persona: quien.persona }), true);
       });
       const soltar = () => { clearTimeout(reloj); boton.classList.remove('tocando'); };
       const boton = h('button', {
@@ -1319,116 +1345,138 @@ async function pantallaRegalo(id, persona, vigente) {
         onpointerup: soltar, onpointerleave: soltar, onpointercancel: soltar, oncontextmenu: (e) => e.preventDefault(),
         onkeydown: (e) => { if ((e.key === 'Enter' || e.key === ' ') && !e.repeat) { e.preventDefault(); abrir(); } }
       }, h('i'), h('span', {}, 'Mantener para revelar'));
-      caja(dib(), h('h2', {}, esOtro ? `La asignación de ${quien.nombre} está lista` : 'Tu asignación está lista'),
-        h('p', { class: 'suave chico' }, 'Revelala cuando estés en un lugar privado.'),
-        boton, aviso,
-        enlace('Revelar más adelante', () => caja(dib('width: 64px'), h('p', {}, 'Tu sorpresa te espera acá.'), h('button', { type: 'button', class: 'segundo', onclick: cerrado }, 'Quiero verla'))));
+      caja(dib(), h('h2', {}, esYo ? 'Tu asignación está lista' : `La asignación de ${quien.nombre} está lista`),
+        h('p', { class: 'suave chico' }, 'Revelala cuando estés en un lugar privado. Después la vas a ver directo.'), boton, aviso);
     }
 
-    function mostrarRegalos(lista) {
-      const hayEspecial = lista.some((r) => r.especial) || (!esOtro && especiales.length);
-      caja(rafaga(), lista.map((r) => h('div', { class: 'regalo' },
-        h('p', { class: r.especial ? 'violeta' : 'suave' }, hayEspecial ? (r.especial ? 'Regalo especial' : 'Regalo del sorteo') : 'Le regalás a'),
+    function mostrar(lista, recien) {
+      zona.replaceChildren(...lista.map((r) => h('div', { class: 'caja' + (recien ? ' entra' : '') },
+        recien ? rafaga() : null,
+        h('p', { class: r.especial ? 'violeta' : 'suave' }, (r.especial ? 'Regalo especial · ' : '') + quienRegala),
         h('p', { class: 'nombre' }, r.nombre),
+        h('h3', { style: 'margin-top: 6px' }, 'Sus preferencias'),
         verPistas(r.pistas || [], r.nombre))),
-        enlace('Ocultar', cerrado));
+        enlace('Ocultar', oculto));
     }
 
-    if (quien.regala) cerrado();
-    else caja(dib(), h('p', {}, !yo.sorteado ? 'Todavía no se hizo el sorteo.'
-      : esOtro ? `${quien.nombre} es destinatario adicional: recibe un regalo y no tiene asignación propia.` : 'Sos destinatario adicional: recibís un regalo y no tenés asignación propia.'));
+    /* Ya revelado: se oculta sin perderlo y se vuelve a ver con un toque. */
+    function oculto() {
+      zona.replaceChildren(h('button', { type: 'button', class: 'especial', onclick: verDirecto },
+        dib('width: 44px'), h('span', {}, h('b', {}, quienRegala + '…'), h('span', { class: 'chico suave' }, 'Tocá para verlo')), icono('seguir')));
+    }
+
+    async function verDirecto() {
+      zona.replaceChildren(h('p', { class: 'suave' }, 'Cargando…'));
+      try { mostrar(await pedir('descubrir', { ...acceso, persona: quien.persona }), false); } catch (error) { zona.replaceChildren(h('p', { class: 'rojo' }, error.message)); }
+    }
+
+    if (!yo.sorteado) caja(dib(), h('p', {}, 'Todavía no se hizo el sorteo.'));
+    else if (!quien.regala) caja(dib(), h('p', {}, esYo ? 'Sos destinatario adicional: recibís un regalo y no tenés asignación propia.' : `${quien.nombre} es destinatario adicional: recibe un regalo y no tiene asignación propia.`));
+    else if (quien.vio) verDirecto();
+    else cerrado();
     return zona;
   }
 
-  /** Los especiales no son sorpresa para quien los da: se ven aparte del sorteo. */
-  const filaEspecial = (r) => h('button', {
-    type: 'button', class: 'especial', onclick: () => ventana('Regalo especial', h('p', { class: 'nombre' }, r.nombre), verPistas(r.pistas || [], r.nombre))
-  }, imagen('flota', NAVIDAD.regaloAzul), h('span', {}, h('b', {}, r.nombre), h('span', { class: 'chico violeta' }, 'Regalo especial')), icono('seguir'));
+  /** Los especiales adicionales no son sorpresa para quien los da. */
+  const filaEspecial = (r) => h('div', { class: 'caja' },
+    h('p', { class: 'violeta' }, 'Regalo especial · Vos le regalás a'), h('p', { class: 'nombre' }, r.nombre),
+    h('h3', { style: 'margin-top: 6px' }, 'Sus preferencias'), verPistas(r.pistas || [], r.nombre));
 
-  /* Cada persona tiene su regalo (izquierda) y su lista (derecha). Cambiar no pierde lo escrito. */
-  const izquierda = h('div', { style: 'display: flex; flex-direction: column; flex: 1' });
-  const derecha = h('div');
-  const barra = h('div', { class: 'acciones', role: 'tablist', 'aria-label': 'Hijos', hidden: true });
-  const vacio = h('p', { class: 'suave', hidden: true }, 'Todavía no hay menores a tu cargo.');
-  const fichas = []; // { quien, regalo, lista, boton }
+  /* ---------- Preferencias: una pestaña por persona ---------- */
 
-  function agregarFicha(quien, regalo, lista, rotulo) {
-    const f = { quien, regalo, lista };
-    if (rotulo !== undefined) {
-      f.boton = h('button', { type: 'button', class: 'enlace', role: 'tab', onclick: () => elegir(f) }, rotulo);
-      barra.insertBefore(f.boton, sumar);
+  const vacioPerfil = (p) => !p.gustos.length && !Object.values(p.talles).some(Boolean) && !TEXTOS.some(([k]) => p[k]);
+  const visible = (p) => ({
+    talles: Object.fromEntries(TALLES.filter(([k]) => p.talles[k]).map(([k]) => [k, p.talles[k]])),
+    gustos: p.gustos.length ? p.gustos : undefined,
+    ...Object.fromEntries(TEXTOS.filter(([k]) => p[k]).map(([k]) => [k, p[k]]))
+  });
+
+  /** Lo guardado se ve resumido; "Editar" abre el formulario. Al guardar, vuelve al resumen. */
+  function perfil(datos, deHijo, guardar, revocar, extra) {
+    const zona = h('div', { class: 'grupo' });
+    let actual = datos;
+    function resumen() {
+      zona.replaceChildren(
+        verPistas(vacioPerfil(actual) ? [] : [visible(actual)], ''),
+        h('p', { class: 'chico suave' }, actual.compartir ? 'Se comparte con quien regala.' : 'No se comparte con quien regala.'),
+        editable ? h('button', { type: 'button', class: 'segundo', style: 'align-self: flex-start', onclick: formulario_ }, 'Editar') : null);
     }
-    if (regalo) izquierda.append(regalo);
-    derecha.append(lista);
+    function formulario_() {
+      zona.replaceChildren(formularioPerfil(actual, deHijo, editable, async (d, nombre) => {
+        await guardar(d, nombre);
+        actual = { ...actual, ...d };
+        resumen();
+      }, revocar, extra && extra()));
+    }
+    if (!editable || vacioPerfil(actual)) formulario_(); else resumen();
+    return zona;
+  }
+
+  const barra = h('div', { class: 'acciones', role: 'tablist', 'aria-label': 'Personas' });
+  const paneles = h('div');
+  const fichas = [];
+  function ficha(rotulo, panel) {
+    const f = { panel, boton: h('button', { type: 'button', class: 'enlace', role: 'tab', onclick: () => elegir(f) }, rotulo) };
+    barra.insertBefore(f.boton, sumar);
+    paneles.append(panel);
     fichas.push(f);
     return f;
   }
   function elegir(f) {
-    vacio.hidden = true;
-    for (const x of fichas) {
-      x.lista.hidden = x !== f;
-      x.boton?.setAttribute('aria-selected', String(x === f));
-      if (x.regalo) x.regalo.hidden = x !== (f.regalo ? f : fichas[0]);
-    }
+    for (const x of fichas) { x.panel.hidden = x !== f; x.boton.setAttribute('aria-selected', String(x === f)); }
   }
 
   /** Menor que no entra al sorteo: vive en la lista de su adulto. */
-  function fichaHijo(hijo) {
+  function fichaExtra(hijo) {
     let idPerfil = hijo.id || 'nuevo';
     const aviso = zonaAviso();
-    const cerrar = () => {
-      f.boton.remove();
-      f.lista.remove();
-      fichas.splice(fichas.indexOf(f), 1);
-      paraHijos();
-    };
+    const cerrar = () => { f.boton.remove(); f.panel.remove(); fichas.splice(fichas.indexOf(f), 1); elegir(fichas[0]); };
     const quitar = enlace('Quitar', (ev) => {
       if (idPerfil === 'nuevo') return cerrar();
       if (!confirm('¿Quitar este perfil y sus deseos?')) return;
-      ejecutar(ev.currentTarget, aviso, async () => {
-        await pedir('quitarPerfil', { ...acceso, perfil: idPerfil });
-        cerrar();
-      });
+      ejecutar(ev.currentTarget, aviso, async () => { await pedir('quitarPerfil', { ...acceso, perfil: idPerfil }); cerrar(); });
     });
-    const f = agregarFicha(hijo, null, h('div', {},
-      formularioPerfil(hijo, true, editable, async (datos, nombre) => {
+    const f = ficha(hijo.nombre || 'Nuevo', h('div', { class: 'grupo' },
+      h('p', { class: 'chico suave' }, 'No participa del sorteo. Sus pistas las ve quien te regala a vos, si las compartís.'),
+      perfil(hijo, true, async (datos, nombre) => {
         const r = await pedir('guardarPerfil', { ...acceso, perfil: idPerfil, nombre, datos });
         idPerfil = r.perfil;
+        hijo.nombre = nombre;
         f.boton.textContent = nombre;
       }, () => pedir('dejarDeCompartir', { ...acceso, perfil: idPerfil }),
-      h('div', { class: 'grupo' }, campo('Nombre', h('input', { name: 'nombre', maxlength: 40, autocomplete: 'off', value: hijo.nombre })),
-        h('p', { class: 'chico suave' }, 'A cargo de un adulto. Responsable: vos. Sus pistas las ve quien te regala a vos, solo si las compartís.'))),
-      editable ? quitar : null, aviso), hijo.nombre || 'Nuevo menor a cargo');
+      () => campo('Nombre', h('input', { name: 'nombre', maxlength: 40, autocomplete: 'off', value: hijo.nombre }))),
+      editable ? quitar : null, aviso));
     f.esNuevo = () => idPerfil === 'nuevo';
     return f;
   }
 
   const sumar = h('button', {
     type: 'button', class: 'enlace', hidden: !(yo.puedeSumarHijos && editable), onclick: () => {
-      const f = fichas.find((x) => x.esNuevo?.()) || fichaHijo(leerPerfil({}));
+      const f = fichas.find((x) => x.esNuevo?.()) || fichaExtra(leerPerfil({}));
       elegir(f);
-      f.lista.querySelector('input').focus();
+      f.panel.querySelector('input')?.focus();
     }
   }, '+ Agregar');
   barra.append(sumar);
-  const propia = agregarFicha(yo, zonaRegalo(yo, false), h('div', {}, formularioPerfil(leerPerfil(yo.lista || yo.deseos), false, editable,
-    (datos) => pedir('guardarPerfil', { ...acceso, persona: yo.persona, datos }), () => pedir('dejarDeCompartir', { ...acceso, persona: yo.persona }))));
+
+  const propia = ficha('Yo', perfil(leerPerfil(yo.lista || yo.deseos), false,
+    (datos) => pedir('guardarPerfil', { ...acceso, persona: yo.persona, datos }), () => pedir('dejarDeCompartir', { ...acceso, persona: yo.persona })));
   for (const n of yo.aCargo) {
-    agregarFicha(n, n.regala ? zonaRegalo(n, true) : null, h('div', {}, formularioPerfil(leerPerfil(n.lista || n.deseos), true, editable,
-      (datos) => pedir('guardarPerfil', { ...acceso, persona: n.persona, datos }), () => pedir('dejarDeCompartir', { ...acceso, persona: n.persona }))), n.nombre);
+    const aviso = zonaAviso();
+    ficha(n.nombre, h('div', { class: 'grupo' },
+      n.responsable ? h('p', { class: 'chico suave' }, `Responsable: ${n.responsable}. Te compartió su gestión.`) : null,
+      perfil(leerPerfil(n.lista || n.deseos), true,
+        (datos) => pedir('guardarPerfil', { ...acceso, persona: n.persona, datos }), () => pedir('dejarDeCompartir', { ...acceso, persona: n.persona })),
+      (n.compartible || []).map((c) => llave(`Compartir su gestión con ${c.nombre}`, c.activo, async (activo, b) => {
+        try { await pedir('compartirGestion', { ...acceso, persona: n.persona, con: c.persona, activo }); aviso.decir(activo ? `${c.nombre} ya puede ver y cargar los datos de ${n.nombre}.` : `${c.nombre} ya no gestiona a ${n.nombre}.`, 'verde'); }
+        catch (error) { aviso.decir(error.message, 'rojo'); b.setAttribute('aria-checked', String(!activo)); }
+      })), aviso));
   }
-  leerPerfil(yo.lista).hijos.forEach(fichaHijo);
-  derecha.append(vacio);
-  function paraMi() { barra.hidden = true; elegir(propia); }
-  function paraHijos() {
-    const primera = fichas[1];
-    barra.hidden = false;
-    if (primera) return elegir(primera);
-    for (const f of fichas) f.lista.hidden = true;
-    vacio.hidden = false;
-  }
-  const conHijos = fichas.length > 1 || (yo.puedeSumarHijos && editable);
+  leerPerfil(yo.lista).hijos.forEach(fichaExtra);
+  if (fichas.length === 1 && sumar.hidden) barra.hidden = true;
   elegir(propia);
+  const deOtro = (yo.deOtro || []).length ? h('p', { class: 'chico suave' },
+    yo.deOtro.map((x) => `${x.nombre} está a cargo de ${x.responsable}`).join('. ') + '. Te pueden compartir su gestión desde su Mi regalo.') : null;
 
   function avisoMail() {
     const aviso = zonaAviso();
@@ -1461,13 +1509,59 @@ async function pantallaRegalo(id, persona, vigente) {
         h('h1', {}, 'Hola, ' + yo.nombre),
         yo.reinicio ? h('p', { class: 'ambar chico' }, `Tu acceso se reinició el ${fechaCorta(yo.reinicio)} a las ${yo.reinicio.slice(11)}. Si no lo pediste, consultale a quien organiza.`) : null,
         yo.mailPropuesto ? avisoMail() : null,
-        izquierda,
-        especiales.map(filaEspecial)),
+        h('h2', {}, 'Mis regalos'),
+        regalosDe(yo, true),
+        yo.aCargo.filter((n) => n.regala).map((n) => regalosDe(n, false)),
+        (yo.especiales || []).map(filaEspecial)),
       h('div', { class: 'columna' },
-        h('div', {}, h('h2', {}, 'Contale a yori qué te gusta'), h('p', { class: 'suave chico' }, 'Todo es opcional.')),
-        conHijos ? segmento('para', [['yo', 'Para mí', 'persona'], ['hijos', 'Para mis hijos', 'personas']], 'yo', (v) => v === 'yo' ? paraMi() : paraHijos()) : null,
-        barra,
-        derecha))));
+        h('div', {}, h('h2', {}, 'Preferencias'), h('p', { class: 'suave chico' }, 'Contale a yori qué les gusta. Todo es opcional.')),
+        barra, paneles, deOtro))));
+}
+
+/* ---------- Link familiar ---------- */
+
+async function pantallaFamilia(id, token, vigente) {
+  cargando();
+  const ver = (revelar) => pedir('familia', { id, token, revelar });
+  const f = await ver(false);
+  if (!vigente()) return;
+  const adultos = f.miembros.filter((m) => m.tipo === 'adulto').map((m) => m.nombre);
+  recordar({ id, persona: 'familia', familia: true, token, encuentro: f.encuentro, fecha: f.fecha, nombre: adultos.join(' y ') });
+  const zona = h('div', { class: 'grupo' });
+  const dib = (estilo) => NAVIDAD.decoracion ? imagen('flota', NAVIDAD.regalo, estilo) : null;
+
+  function mostrar(d, recien) {
+    zona.replaceChildren(recien ? rafaga() : null, ...d.regalos.flatMap((x) => x.a.map((y) => h('div', { class: 'tarjeta' + (recien ? ' entra' : '') },
+      h('p', { style: 'display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 16px' },
+        h('span', {}, x.de), icono('flecha'), h('b', { style: 'font-weight: 600' }, y.nombre), y.especial ? h('span', { class: 'violeta chico' }, 'Regalo especial') : null),
+      h('details', {}, h('summary', {}, 'Sus preferencias'), verPistas(y.pistas || [], y.nombre))))),
+      enlace('Ocultar', () => zona.replaceChildren(h('button', { type: 'button', class: 'especial', onclick: () => mostrar(d, false) },
+        dib('width: 44px'), h('span', {}, h('b', {}, 'Los regalos de la familia'), h('span', { class: 'chico suave' }, 'Tocá para verlos')), icono('seguir')))));
+  }
+
+  if (!f.sorteado) zona.append(h('div', { class: 'caja' }, dib(), h('p', {}, 'Todavía no se hizo el sorteo.')));
+  else if (f.revelado) mostrar(f, false);
+  else {
+    const aviso = zonaAviso();
+    let reloj;
+    const abrir = () => ejecutar(boton, aviso, async () => { boton.classList.remove('tocando'); mostrar(await ver(true), true); });
+    const soltar = () => { clearTimeout(reloj); boton.classList.remove('tocando'); };
+    const boton = h('button', {
+      type: 'button', class: 'boton mantener',
+      onpointerdown: () => { if (boton.disabled) return; boton.classList.add('tocando'); clearTimeout(reloj); reloj = setTimeout(abrir, 900); },
+      onpointerup: soltar, onpointerleave: soltar, onpointercancel: soltar, oncontextmenu: (e) => e.preventDefault(),
+      onkeydown: (e) => { if ((e.key === 'Enter' || e.key === ' ') && !e.repeat) { e.preventDefault(); abrir(); } }
+    }, h('i'), h('span', {}, 'Mantener para revelar'));
+    zona.append(h('div', { class: 'caja' }, dib(), h('h2', {}, 'Los regalos de tu familia están listos'),
+      h('p', { class: 'suave chico' }, 'Revelalos cuando nadie más esté mirando. Después se ven directo.'), boton, aviso));
+  }
+
+  montar(copos(), h('header', { class: 'barra' }, marcaNavidad(), h('span', { class: 'suave chico' }, `${f.encuentro} · ${fechaCorta(f.fecha)}`)),
+    h('main', { class: 'centro' },
+      h('div', { class: 'ficha grande vidrio entra' },
+        h('div', {}, h('h1', {}, 'Familia de ' + adultos.join(' y ')), h('p', { class: 'suave' }, f.miembros.map((m) => m.nombre).join(', ') + '.')),
+        zona)),
+    pie());
 }
 
 navegar();
