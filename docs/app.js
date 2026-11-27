@@ -238,6 +238,7 @@ async function navegar() {
     else if (ruta === 's') await abrirLink(id, extra, vigente);
     else if (ruta === 'm') await pantallaRegalo(id, extra, vigente);
     else if (ruta === 'f') await pantallaFamilia(id, extra, vigente);
+    else if (ruta === 'e') await abrirMisEventos(id, vigente);
     else if (ruta === 'navidad') pantallaNavidad();
     else if (ruta === 'crear') pantallaCrear();
     else if (ruta === 'portal' || (!ruta && location.hash !== '#/' && sesiones.length)) pantallaPortal();
@@ -281,7 +282,42 @@ function pantallaIngreso() {
 
 const PROXIMAS = [['torta', 'Cumpleaños'], ['personas', 'Familia'], ['copa', 'Amigos'], ['valija', 'Compañeros']];
 
+/** Link "Ver mis eventos" del mail: deja abiertos en este dispositivo todos los eventos de ese mail. */
+async function abrirMisEventos(token, vigente) {
+  cargando();
+  const r = await pedir('misEventos', { token });
+  if (!vigente()) return;
+  r.eventos.forEach(({ admin, ...s }) => recordar(admin ? { ...s, admin: true, persona: 'admin' } : s));
+  history.replaceState(null, '', '#/portal');
+  pantallaPortal();
+}
+
+/** Una fila por evento, con cada forma de entrar (organizar, participar, familia). */
+function listaDeEventos() {
+  const ids = [...new Set(sesiones.map((s) => s.id))];
+  const zona = h('div', {}, ids.map((id) => {
+    const suyas = sesiones.filter((s) => s.id === id);
+    const s0 = suyas[0];
+    return h('div', { class: 'fila', 'data-evento': id },
+      h('span', { style: 'flex: none' }, s0.encuentro || 'Amigo Invisible'),
+      h('span', { class: 'suave', style: 'flex-wrap: wrap; justify-content: flex-end; padding: 8px 0' },
+        suyas.map((s) => h('a', { class: 'enlace', href: s.admin ? `#/a/${s.id}/${s.token}` : s.familia ? `#/f/${s.id}/${s.token}` : `#/m/${s.id}/${s.persona}` },
+          s.admin ? 'Organizás' : s.familia ? 'Familia' : s.nombre)),
+        s0.fecha ? h('span', { class: 'num' }, fechaCorta(s0.fecha)) : null));
+  }));
+  // Los eventos que ya no existen salen de la lista de este dispositivo. No borra nada del servidor.
+  if (ids.length) pedir('existen', { ids }).then((r) => {
+    const fuera = ids.filter((x) => !r.ids.includes(x));
+    if (!fuera.length) return;
+    sesiones = sesiones.filter((s) => !fuera.includes(s.id));
+    guardarSesiones();
+    fuera.forEach((x) => zona.querySelector(`[data-evento="${x}"]`)?.remove());
+  }, () => {});
+  return zona;
+}
+
 function pantallaPortal() {
+  const lista = listaDeEventos();
   conMenu('',
     h('nav', { 'aria-label': 'Principal' },
       itemMenu('inicio', 'Inicio', { href: '#/portal', 'aria-current': 'page' }),
@@ -293,11 +329,14 @@ function pantallaPortal() {
         imagen('flor', 'img/flor.svg'),
         NAVIDAD.decoracion ? [imagen('estrella', NAVIDAD.estrella, 'width:18px;right:212px;top:30px'), imagen('estrella', NAVIDAD.estrella, 'width:13px;right:44px;top:34px;animation-delay:.9s'), imagen('estrella', NAVIDAD.estrella, 'width:16px;right:30px;bottom:44px;animation-delay:1.7s')] : null),
       h('div', { class: 'partes entra e3' },
-        h('div', {}, h('h3', {}, 'Mis sorteos'),
+        h('div', {}, h('h3', {}, 'Mis eventos'),
           sesiones.length
-            ? sesiones.map((s) => h('a', { class: 'fila', href: s.admin ? `#/a/${s.id}/${s.token}` : s.familia ? `#/f/${s.id}/${s.token}` : `#/m/${s.id}/${s.persona}` },
-              h('span', {}, s.encuentro || 'Amigo Invisible'),
-              h('span', { class: 'suave' }, h('span', {}, s.admin ? 'Organizás' : s.familia ? 'Familia' : s.nombre), s.fecha ? h('span', {}, fechaCorta(s.fecha)) : null, icono('seguir'))))
+            ? [lista, enlace('Salir de este dispositivo', () => {
+              if (!confirm('¿Salir de todos los eventos en este dispositivo? Para volver, pedí tu acceso con tu mail.')) return;
+              sesiones = [];
+              guardarSesiones();
+              ir('#/');
+            })]
             : h('a', { class: 'enlace', href: '#/' }, 'Entrar con mi mail')),
         h('div', {}, h('h3', {}, 'Próximamente'),
           h('div', { class: 'dos' }, PROXIMAS.map(([dib, texto]) => h('div', { class: 'prox' }, icono(dib), texto)))))));
@@ -445,7 +484,7 @@ async function pantallaAdmin(id, token, vigente) {
       h('div', { class: 'dos' },
         campo('Fecha', h('input', { class: 'num', type: 'date', name: 'fecha', value: e.fecha })),
         campo('Presupuesto (opcional)', h('input', { class: 'num', type: 'number', name: 'presupuesto', min: 0, step: '0.01', inputmode: 'decimal', value: e.presupuesto === null ? '' : e.presupuesto.toFixed(2) }))),
-      campo('Mensaje (opcional)', h('textarea', { name: 'mensaje', maxlength: 300, value: e.mensaje })),
+      campo('Mensaje (opcional)', h('textarea', { name: 'mensaje', maxlength: 500, value: e.mensaje })),
       h('fieldset', {},
         h('legend', {}, 'Cómo se reparten los regalos'),
         opcion({ type: 'radio', name: 'modalidad', value: 'B', checked: e.modalidad === 'B' }, 'Cada adulto regala a un adulto y a un niño'),
@@ -910,7 +949,7 @@ async function pantallaAdmin(id, token, vigente) {
     const acomodar = () => {
       const a = s.personas.find((p) => p.id === recibe.value);
       nota.textContent = modo === 'adicional' ? 'Quien regala mantiene sus regalos del sorteo y suma este.' : 'Este regalo ocupa el lugar del que le tocaba por sorteo.';
-      tambienRecibe.hidden = modo !== 'adicional' || !a || regala(a); // quien participa siempre recibe del sorteo
+      tambienRecibe.hidden = modo !== 'adicional' || !a || a.tipo === 'adulto'; // los adultos siempre reciben del sorteo
     };
     acomodar();
     const d = ventana('Regalo especial', formulario(aviso, async (x) => {
@@ -931,7 +970,7 @@ async function pantallaAdmin(id, token, vigente) {
     const n = adultos().length;
     const tipoDe = (pid) => s.personas.find((p) => p.id === pid)?.tipo;
     const reemplaza = (tipo) => s.especiales.filter((e) => e.modo === 'reemplaza' && tipoDe(e.a) === tipo).length;
-    const cubiertos = s.evento.modalidad === 'B' ? ninos.filter((p) => s.especiales.some((e) => e.a === p.id && e.modo === 'adicional' && !e.tambien) && !s.especiales.some((e) => e.a === p.id && e.modo === 'reemplaza')).length : 0;
+    const cubiertos = ninos.filter((p) => s.especiales.some((e) => e.a === p.id && e.modo === 'adicional' && !e.tambien) && !s.especiales.some((e) => e.a === p.id && e.modo === 'reemplaza')).length;
     const libres = ninos.length - cubiertos;
     const aNinos = !libres ? 0 : s.evento.modalidad === 'B' ? Math.max(n, libres) : libres;
     return { adultos: n - reemplaza('adulto'), ninos: Math.max(0, aNinos - reemplaza('nino')), especiales: s.especiales.length };
@@ -939,7 +978,7 @@ async function pantallaAdmin(id, token, vigente) {
 
   function pintarEspeciales() {
     const fila = (e) => {
-      const solo = e.modo === 'adicional' && !e.tambien && s.personas.some((p) => p.id === e.a && !regala(p));
+      const solo = e.modo === 'adicional' && !e.tambien && s.personas.some((p) => p.id === e.a && p.tipo === 'nino');
       return h(abierto() ? 'button' : 'div', { class: 'especial', ...(abierto() ? { type: 'button', onclick: () => formularioEspecial(e) } : {}) },
         imagen('flota', NAVIDAD.regalo),
         h('span', {}, h('b', {}, nombreDe(e.de), icono('flecha'), nombreDe(e.a)),
@@ -1115,7 +1154,7 @@ async function pantallaGrupo(id, extra, vigente) {
   if (!vigente()) return;
 
   const elegida = grupo.personas.find((p) => p.id === extra);
-  if (elegida) return pantallaPin(id, elegida);
+  if (elegida) return pantallaPin(id, elegida, grupo.ingreso);
 
   mostrarNavidad(grupo.encuentro, `${grupo.organizador} te invitó a participar.`,
     h('div', {},
@@ -1123,21 +1162,50 @@ async function pantallaGrupo(id, extra, vigente) {
       grupo.personas.length
         ? grupo.personas.map((p) => {
           const recordada = propias.some((s) => s.persona === p.id);
-          return h('button', { type: 'button', class: 'fila', onclick: () => recordada ? ir(`#/m/${id}/${p.id}`) : pantallaPin(id, p) },
+          return h('button', { type: 'button', class: 'fila', onclick: () => recordada ? ir(`#/m/${id}/${p.id}`) : pantallaPin(id, p, grupo.ingreso) },
             h('span', {}, p.nombre), h('span', { class: 'suave' }, recordada ? 'En este dispositivo' : p.validada ? 'Ya entró' : '', icono('seguir')));
         })
         : h('p', {}, 'Todavía no hay nombres para elegir.')),
     h('p', { class: 'chico suave' }, 'Si no ves tu nombre, consultale a quien organiza. Los menores están a cargo de un adulto.'));
 }
 
-function pantallaPin(id, p) {
+function pantallaPin(id, p, ingreso) {
   const aviso = zonaAviso();
   const zona = h('div');
   const otra = enlace('No soy ' + p.nombre, () => ir(`#/g/${id}/elegir`));
   otra.style.alignSelf = 'flex-start';
-  if (p.validada) {
+  const listo = (r) => { recordar({ id, persona: r.persona, nombre: r.nombre, token: r.token }); ir(`#/m/${id}/${r.persona}`); };
+
+  // Ingreso por contraseña: la primera vez se crea; después se entra con ella.
+  if (ingreso === 'clave') {
+    const clave = (nombre, auto) => h('input', { name: nombre, type: 'password', maxlength: 100, autocomplete: auto });
     mostrarNavidad('Hola, ' + p.nombre, null,
-      h('p', { class: 'suave' }, 'Este nombre ya entró y nadie más puede usarlo. Si cambiaste de dispositivo, te enviamos tu acceso al mail que validaste.'),
+      p.validada
+        ? formulario(aviso, async (d) => listo(await pedir('entrarConClave', { id, persona: p.id, clave: d.clave })),
+          campo('Tu contraseña', clave('clave', 'current-password')), aviso, enviar('Entrar'))
+        : formulario(aviso, async (d) => {
+          if (d.clave !== d.repetir) throw new Error('Las contraseñas no coinciden.');
+          listo(await pedir('reclamar', { id, persona: p.id, clave: d.clave }));
+        },
+          h('p', { class: 'suave' }, `Creá tu contraseña para entrar como ${p.nombre}. Mínimo 8 caracteres. Guardala: la vas a usar para volver a entrar.`),
+          campo('Contraseña', clave('clave', 'new-password')), campo('Repetir contraseña', clave('repetir', 'new-password')), aviso, enviar('Entrar')),
+      h('p', { class: 'chico suave' }, p.validada ? 'Si no te acordás de la contraseña, pedile a quien organiza que libere tu nombre.' : 'Elegí solo tu propio nombre.'),
+      otra);
+    document.querySelector('input[type=password]')?.focus();
+    return;
+  }
+  if (p.validada) {
+    const conClave = !p.conClave ? null : formulario(aviso, async (d) => {
+      const r = await pedir('entrarConClave', { id, persona: p.id, mail: d.mail, clave: d.clave });
+      recordar({ id, persona: r.persona, nombre: r.nombre, token: r.token });
+      ir(`#/m/${id}/${r.persona}`);
+    },
+      campo('Tu mail', h('input', { name: 'mail', type: 'email', maxlength: 100, autocomplete: 'email' })),
+      campo('Tu contraseña', h('input', { name: 'clave', type: 'password', maxlength: 100, autocomplete: 'current-password' })),
+      enviar('Entrar'));
+    mostrarNavidad('Hola, ' + p.nombre, null,
+      conClave ? [conClave, h('p', { class: 'suave', style: 'margin-top: 8px' }, '¿No te acordás de la contraseña? Te enviamos tu acceso al mail que validaste.')]
+        : h('p', { class: 'suave' }, 'Este nombre ya entró y nadie más puede usarlo. Si cambiaste de dispositivo, te enviamos tu acceso al mail que validaste.'),
       h('button', {
         type: 'button', class: 'boton', onclick: (ev) => ejecutar(ev.currentTarget, aviso, async () => {
           const r = await pedir('pedirLink', { id, persona: p.id });
@@ -1396,29 +1464,36 @@ async function pantallaRegalo(id, persona, vigente) {
 
   const vacioPerfil = (p) => !p.gustos.length && !Object.values(p.talles).some(Boolean) && !TEXTOS.some(([k]) => p[k]);
   const visible = (p) => ({
-    talles: Object.fromEntries(TALLES.filter(([k]) => p.talles[k]).map(([k]) => [k, p.talles[k]])),
+    talles: TALLES.some(([k]) => p.talles[k]) ? Object.fromEntries(TALLES.filter(([k]) => p.talles[k]).map(([k]) => [k, p.talles[k]])) : undefined,
     gustos: p.gustos.length ? p.gustos : undefined,
     ...Object.fromEntries(TEXTOS.filter(([k]) => p[k]).map(([k]) => [k, p[k]]))
   });
 
-  /** Lo guardado se ve resumido; "Editar" abre el formulario. Al guardar, vuelve al resumen. */
+  /** Siempre abre en consulta con lo último guardado. "Editar" abre el formulario; al guardar vuelve a la consulta y lo confirma. */
   function perfil(datos, deHijo, guardar, revocar, extra) {
     const zona = h('div', { class: 'grupo' });
     let actual = datos;
-    function resumen() {
-      zona.replaceChildren(
-        verPistas(vacioPerfil(actual) ? [] : [visible(actual)], ''),
-        h('p', { class: 'chico suave' }, actual.compartir ? 'Se comparte con quien regala.' : 'No se comparte con quien regala.'),
-        editable ? h('button', { type: 'button', class: 'segundo', style: 'align-self: flex-start', onclick: formulario_ }, 'Editar') : null);
+    function resumen(guardado) {
+      const vacio = vacioPerfil(actual);
+      zona.replaceChildren(...[
+        guardado ? h('p', { class: 'verde', role: 'status' }, 'Cambios guardados.') : null,
+        vacio ? h('p', { class: 'suave' }, 'Todavía no hay preferencias cargadas.') : verPistas([visible(actual)], ''),
+        vacio ? null : h('p', { class: 'chico suave' }, actual.compartir ? 'Se comparte con quien regala.' : 'No se comparte con quien regala.'),
+        editable ? h('button', { type: 'button', class: 'segundo', style: 'align-self: flex-start', onclick: formulario_ }, vacio ? 'Cargar preferencias' : 'Editar')
+          : h('p', { class: 'chico suave' }, 'El encuentro ya pasó: no se puede editar.')].filter(Boolean));
     }
     function formulario_() {
-      zona.replaceChildren(formularioPerfil(actual, deHijo, editable, async (d, nombre) => {
-        await guardar(d, nombre);
-        actual = { ...actual, ...d };
-        resumen();
-      }, revocar, extra && extra()));
+      zona.replaceChildren(
+        h('p', { class: 'chico suave' }, 'Editando. Los cambios se guardan al tocar Guardar.'),
+        formularioPerfil(actual, deHijo, editable, async (d, nombre) => {
+          await guardar(d, nombre);
+          actual = { ...actual, ...d };
+          resumen(true);
+        }, revocar, extra && extra()),
+        enlace('Cancelar', () => resumen(false)));
     }
-    if (!editable || vacioPerfil(actual)) formulario_(); else resumen();
+    // Un perfil nuevo de hijo necesita nombre: arranca en edición.
+    if (editable && extra && !datos.nombre) formulario_(); else resumen(false);
     return zona;
   }
 
@@ -1440,7 +1515,7 @@ async function pantallaRegalo(id, persona, vigente) {
   function fichaExtra(hijo) {
     let idPerfil = hijo.id || 'nuevo';
     const aviso = zonaAviso();
-    const cerrar = () => { f.boton.remove(); f.panel.remove(); fichas.splice(fichas.indexOf(f), 1); elegir(fichas[0]); };
+    const cerrar = () => { f.boton.remove(); f.panel.remove(); fichas.splice(fichas.indexOf(f), 1); if (fichas.length) elegir(fichas[0]); };
     const quitar = enlace('Quitar', (ev) => {
       if (idPerfil === 'nuevo') return cerrar();
       if (!confirm('¿Quitar este perfil y sus deseos?')) return;
@@ -1469,8 +1544,8 @@ async function pantallaRegalo(id, persona, vigente) {
   }, '+ Agregar');
   barra.append(sumar);
 
-  const propia = ficha('Yo', perfil(leerPerfil(yo.lista || yo.deseos), false,
-    (datos) => pedir('guardarPerfil', { ...acceso, persona: yo.persona, datos }), () => pedir('dejarDeCompartir', { ...acceso, persona: yo.persona })));
+  const propia = perfil(leerPerfil(yo.lista || yo.deseos), false,
+    (datos) => pedir('guardarPerfil', { ...acceso, persona: yo.persona, datos }), () => pedir('dejarDeCompartir', { ...acceso, persona: yo.persona }));
   for (const n of yo.aCargo) {
     const aviso = zonaAviso();
     ficha(n.nombre, h('div', { class: 'grupo' },
@@ -1483,7 +1558,7 @@ async function pantallaRegalo(id, persona, vigente) {
       })), aviso));
   }
   leerPerfil(yo.lista).hijos.forEach(fichaExtra);
-  if (fichas.length === 1 && sumar.hidden) barra.hidden = true;
+  if (!fichas.length && sumar.hidden) barra.hidden = true;
 
   /** Eliminar la identidad propia o la de un menor a cargo. */
   function eliminarDatos(quien, de) {
@@ -1492,8 +1567,8 @@ async function pantallaRegalo(id, persona, vigente) {
       if (quien === yo) { olvidar(id, persona); ir('#/'); } else navegar();
     }, (error) => ventana('No se pudo eliminar', h('p', {}, error.message)));
   }
-  yo.aCargo.forEach((n, i) => { if (!n.responsable) fichas[i + 1].panel.append(enlace(`Eliminar los datos de ${n.nombre}`, () => eliminarDatos(n, 'los datos de ' + n.nombre))); });
-  elegir(propia);
+  yo.aCargo.forEach((n, i) => { if (!n.responsable) fichas[i].panel.append(enlace(`Eliminar los datos de ${n.nombre}`, () => eliminarDatos(n, 'los datos de ' + n.nombre))); });
+  if (fichas.length) elegir(fichas[0]);
   const deOtro = (yo.deOtro || []).length ? h('p', { class: 'chico suave' },
     yo.deOtro.map((x) => `${x.nombre} está a cargo de ${x.responsable}`).join('. ') + '. Te pueden compartir su gestión desde su Mi regalo.') : null;
 
@@ -1524,24 +1599,85 @@ async function pantallaRegalo(id, persona, vigente) {
     return caja;
   }
 
+  /* Pestañas, una sección por vez: a quién le regalo, preferencias y, en sorteos familiares, mi familia. */
+  const chicos = yo.aCargo.length || !sumar.hidden;
+
+  /** El núcleo familiar: a quién le regala cada uno, nunca quién le regala. Se pide recién al abrir la pestaña. */
+  function vistaNucleo() {
+    const zona = h('div', { class: 'grupo' }, h('p', { class: 'suave' }, 'Cargando…'));
+    const aviso = zonaAviso();
+    const fila = (r) => h('div', { class: 'caja' },
+      h('p', { class: 'suave' }, r.yo ? 'Vos le regalás a' : `${r.de} le regala a`),
+      r.a.map((x) => [h('p', { class: 'nombre' }, x.nombre), x.especial ? h('p', { class: 'violeta chico' }, 'Regalo especial') : null,
+        enlace('Ver preferencias', () => ventana('Preferencias de ' + x.nombre, verPistas(x.pistas || [], x.nombre)))]));
+    const mostrarNucleo = (n) => {
+      if (!n.sorteado) return zona.replaceChildren(h('p', { class: 'suave' }, 'Todavía no se hizo el sorteo.'));
+      if (!n.revelado) {
+        const boton = h('button', { type: 'button', class: 'boton', style: 'align-self: flex-start',
+          onclick: () => ejecutar(boton, aviso, async () => mostrarNucleo(await pedir('nucleo', { ...acceso, revelar: true }))) }, 'Revelar las asignaciones de mi familia');
+        return zona.replaceChildren(h('p', { class: 'suave chico' }, 'Revelalas en un lugar privado. Después las vas a ver directo.'), boton, aviso);
+      }
+      zona.replaceChildren(...(n.regalos.length ? n.regalos.map(fila) : [h('p', { class: 'suave' }, 'Nadie de tu familia tiene asignación en este sorteo.')]));
+    };
+    return { zona, cargar: () => pedir('nucleo', acceso).then(mostrarNucleo, (error) => zona.replaceChildren(h('p', { class: 'rojo' }, error.message))) };
+  }
+
+  const regalo = h('main', {}, h('div', { class: 'columna' },
+    h('h2', {}, 'A quién le regalo'),
+    regalosDe(yo, true),
+    yo.aCargo.filter((n) => n.regala).map((n) => regalosDe(n, false)),
+    (yo.especiales || []).map(filaEspecial),
+    deOtro));
+  const preferencias = h('main', { hidden: true }, h('div', { class: 'columna' },
+    h('div', {}, h('h2', {}, 'Mis preferencias'), h('p', { class: 'suave chico' }, 'Contale a yori qué te gusta. Todo es opcional.')),
+    propia,
+    chicos ? [h('h2', { style: 'margin-top: 18px' }, 'A tu cargo'), barra, paneles] : null));
+  const nucleo = yo.familia ? vistaNucleo() : null;
+  const familia = !nucleo ? null : h('main', { hidden: true }, h('div', { class: 'columna' },
+    h('h2', {}, 'Mi familia'),
+    yo.miFamilia.length ? h('p', { class: 'suave' }, yo.miFamilia.join(', ')) : null,
+    nucleo.zona));
+
+  const secciones = [['A quién le regalo', regalo], ['Mis preferencias', preferencias], familia ? ['Mi familia', familia, nucleo.cargar] : null].filter(Boolean);
+  const vistas = h('div', { class: 'acciones vistas', role: 'tablist', 'aria-label': 'Secciones' });
+  let cargada = false;
+  for (const [rotulo, vista, alAbrir] of secciones) {
+    vistas.append(h('button', { type: 'button', class: 'enlace', role: 'tab', 'aria-selected': String(vista === regalo), onclick: (ev) => {
+      for (const [, v] of secciones) v.hidden = v !== vista;
+      for (const b of vistas.children) b.setAttribute('aria-selected', String(b === ev.currentTarget));
+      if (alAbrir && !cargada) { cargada = true; alAbrir(); }
+    } }, rotulo));
+  }
+  const saludo = h('div', { class: 'vistas columna' },
+    h('h1', {}, 'Hola, ' + yo.nombre),
+    yo.reinicio ? h('p', { class: 'ambar chico' }, `Tu acceso se reinició el ${fechaCorta(yo.reinicio)} a las ${yo.reinicio.slice(11)}. Si no lo pediste, consultale a quien organiza.`) : null,
+    yo.mailPropuesto ? avisoMail() : null);
+
+  /** Contraseña opcional para volver a entrar con mail y contraseña desde el link del grupo. */
+  function ventanaClave() {
+    const aviso = zonaAviso();
+    const cerrarla = ventana(yo.conClave ? 'Cambiar contraseña' : 'Crear contraseña',
+      h('p', { class: 'suave chico' }, 'Con tu mail y esta contraseña vas a poder entrar desde el link del grupo, sin pedir PIN. Mínimo 8 caracteres.'),
+      formulario(aviso, async (d) => {
+        if (d.clave !== d.repetir) throw new Error('Las contraseñas no coinciden.');
+        await pedir('guardarClave', { ...acceso, clave: d.clave });
+        yo.conClave = true;
+        aviso.decir('Contraseña guardada.', 'verde');
+      },
+        campo('Contraseña', h('input', { name: 'clave', type: 'password', maxlength: 100, autocomplete: 'new-password' })),
+        campo('Repetir contraseña', h('input', { name: 'repetir', type: 'password', maxlength: 100, autocomplete: 'new-password' })),
+        aviso, enviar('Guardar contraseña')));
+    return cerrarla;
+  }
+
   montar(h('div', { class: 'marco vidrio entra mio' },
     h('header', { class: 'cab' }, marcaNavidad(),
       h('div', { class: 'acciones' },
         enlace(`${yo.evento.nombre} · ${fechaCorta(yo.evento.fecha)}`, () => ventana(yo.evento.nombre, h('p', { class: 'suave' }, 'Organiza ' + yo.organizador + '.'), datosEvento(yo.evento), calendario(yo.evento))),
+        enlace(yo.conClave ? 'Cambiar contraseña' : 'Crear contraseña', ventanaClave),
         enlace('Eliminar mis datos', () => eliminarDatos(yo, 'tus datos')),
         enlace('Salir', () => { olvidar(id, persona); ir('#/'); }))),
-    h('main', {},
-      h('div', { class: 'columna' },
-        h('h1', {}, 'Hola, ' + yo.nombre),
-        yo.reinicio ? h('p', { class: 'ambar chico' }, `Tu acceso se reinició el ${fechaCorta(yo.reinicio)} a las ${yo.reinicio.slice(11)}. Si no lo pediste, consultale a quien organiza.`) : null,
-        yo.mailPropuesto ? avisoMail() : null,
-        h('h2', {}, 'Mis regalos'),
-        regalosDe(yo, true),
-        yo.aCargo.filter((n) => n.regala).map((n) => regalosDe(n, false)),
-        (yo.especiales || []).map(filaEspecial)),
-      h('div', { class: 'columna' },
-        h('div', {}, h('h2', {}, 'Preferencias'), h('p', { class: 'suave chico' }, 'Contale a yori qué les gusta. Todo es opcional.')),
-        barra, paneles, deOtro))));
+    saludo, vistas, regalo, preferencias, familia));
 }
 
 /* ---------- Link familiar ---------- */

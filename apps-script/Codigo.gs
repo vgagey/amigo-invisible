@@ -82,6 +82,10 @@ var ACCIONES_ = {
   pedirLink: pedirLink_,
   familia: familia_,
   acceder: acceder_,
+  misEventos: misEventos_,
+  existen: existen_,
+  entrarConClave: entrarConClave_,
+  reclamar: reclamar_,
   // Quien organiza
   admin: function (p) { return verAdmin_(abrirAdmin_(p)); },
   guardarEvento: conAdmin_(guardarEvento_),
@@ -111,6 +115,8 @@ var ACCIONES_ = {
   // Participantes
   yo: yo_,
   descubrir: descubrir_,
+  nucleo: nucleo_,
+  guardarClave: guardarClave_,
   guardarDeseos: guardarDeseos_,
   guardarPerfil: guardarPerfil_,
   quitarPerfil: quitarPerfil_,
@@ -237,7 +243,8 @@ function reglaFamilia_(s, pedido) {
 
 /** Quien recibe un regalo especial adicional y no recibe otro del sorteo. Solo quienes no regalan. */
 function cubierta_(s, p) {
-  return s.evento.modalidad === 'B' && p.tipo === 'nino' && (s.especiales || []).some(function (e) {
+  // Un menor con regalo especial adicional, sin "también recibe del sorteo", queda fuera del sorteo (no regala ni recibe por sorteo).
+  return p.tipo === 'nino' && (s.especiales || []).some(function (e) {
     return e.modo === 'adicional' && e.a === p.id && !e.tambien;
   }) && !s.especiales.some(function (e) { return e.modo === 'reemplaza' && e.a === p.id; });
 }
@@ -320,7 +327,7 @@ function leerEvento_(pedido) {
     nombre: validarTexto_(pedido.encuentro, 60) || 'Navidad en familia',
     fecha: validarFecha_(pedido.fecha),
     presupuesto: validarPresupuesto_(pedido.presupuesto),
-    mensaje: validarTexto_(pedido.mensaje, 300),
+    mensaje: validarTexto_(pedido.mensaje, 500),
     modalidad: pedido.modalidad === 'B' ? 'B' : 'A'
   };
 }
@@ -820,8 +827,9 @@ function grupo_(pedido) {
   return {
     organizador: s.organizador.nombre,
     encuentro: s.evento.nombre,
+    ingreso: s.ingreso === 'clave' ? 'clave' : 'mail',
     personas: s.personas.filter(function (p) { return !p.responsable || p.correo; }).map(function (p) {
-      return { id: p.id, nombre: p.nombre, validada: !!p.validada, conMail: !!p.correo };
+      return { id: p.id, nombre: p.nombre, validada: !!p.validada, conMail: !!p.correo, conClave: !!p.clave };
     })
   };
 }
@@ -929,6 +937,9 @@ function acceder_(pedido) {
     // Sin aviso propio: no debe distinguir si el mail participa.
     try { contarEnvio_('accesos:' + hoy_(), ACCESOS_POR_DIA, 21600, 'cupo de accesos'); } catch (error) { console.error(error); return {}; }
     cambios.forEach(guardar_);
+    var eventos = nuevoToken_();
+    CacheService.getScriptCache().put('eventos:' + huella_(eventos), mail, 21600);
+    lista.unshift({ texto: 'Todos tus eventos en un solo lugar. Sirve por 6 horas.', boton: 'Ver mis eventos', url: URL_APP + '#/e/' + eventos });
     enviarMail_({
       para: mail,
       asunto: 'Tu acceso a yori',
@@ -937,6 +948,40 @@ function acceder_(pedido) {
       lista: lista
     });
     return {};
+  });
+}
+
+/** Cuáles de estos eventos siguen existiendo. Solo responde por IDs que el dispositivo ya conoce. */
+function existen_(pedido) {
+  var ids = (Array.isArray(pedido.ids) ? pedido.ids : []).slice(0, 50).map(String);
+  if (enSupabase_()) return { ids: ids.filter(function (id) { return !!llamar_('select yori.abrir(?)::text', [id])[0]; }) };
+  var hoja = hoja_();
+  return { ids: ids.filter(function (id) { return !!buscarFila_(hoja, id); }) };
+}
+
+/** Desde el link "Ver mis eventos": abre en este dispositivo todos los eventos de ese mail. */
+function misEventos_(pedido) {
+  return conCandado_(function () {
+    var mail = CacheService.getScriptCache().get('eventos:' + huella_(String(pedido.token || '')));
+    if (!mail) throw sinAcceso_('Este link ya venció. Pedí uno nuevo con tu mail.');
+    var lista = [];
+    (enSupabase_() ? delMail_(mail) : todos_()).forEach(function (s) {
+      var antes = lista.length;
+      var datos = { id: s.id, encuentro: s.evento.nombre, fecha: s.evento.fecha };
+      if (s.organizador.mail === mail) {
+        var token = nuevoToken_();
+        s.admins = (s.admins || []).concat(huella_(token)).slice(-5);
+        lista.push(Object.assign({ admin: true, token: token }, datos));
+      }
+      s.personas.forEach(function (p) {
+        if (!p.validada || p.mail !== mail || (p.responsable && !p.correo)) return;
+        var token = nuevoToken_();
+        p.sesiones = p.sesiones.concat(huella_(token)).slice(-5);
+        lista.push(Object.assign({ persona: p.id, nombre: p.nombre, token: token }, datos));
+      });
+      if (lista.length > antes) guardar_(s);
+    });
+    return { eventos: lista };
   });
 }
 
@@ -1079,6 +1124,101 @@ function familia_(pedido) {
   });
 }
 
+/**
+ * "Mi familia" en un sorteo familiar: a quién le regala cada integrante del núcleo. Nunca quién le regala.
+ * Solo con sesión propia y si el evento tiene la regla familiar.
+ */
+function nucleo_(pedido) {
+  return conCandado_(function () {
+    var s = abrir_(pedido.id);
+    var yo = personaConToken_(s, pedido.token);
+    if (s.reglaFamilia !== true) throw aviso_('Este sorteo no es familiar.');
+    if (s.estado !== 'sorteado') return { sorteado: false, revelado: false, regalos: [] };
+    var grupo = familias_(s);
+    var parejas = mostrar_(s.parejas);
+    var regalan = s.personas.filter(function (p) { return grupo[p.id] === grupo[yo.id] && regalosDe_(s, parejas, p.id).length; });
+    var revelar = pedido.revelar === true || regalan.some(function (p) { return p.vio; });
+    if (revelar && regalan.some(function (p) { return !p.vio; })) {
+      regalan.forEach(function (p) { p.vio = true; });
+      guardar_(s);
+    }
+    return {
+      sorteado: true, revelado: revelar,
+      regalos: !revelar ? [] : regalan.map(function (p) {
+        return { de: p.nombre, yo: p.id === yo.id, a: regalosDe_(s, parejas, p.id).map(function (x) { return verRegalo_(s, x); }) };
+      })
+    };
+  });
+}
+
+/* ---------- Contraseña opcional ----------
+ * Se crea con la sesión abierta (después del PIN). Sirve para volver a entrar desde el link del grupo
+ * con el mail validado y la contraseña. Se guarda solo una huella con sal; si se olvida, se entra con
+ * "Enviarme mi acceso" y se crea otra. */
+var MIN_CLAVE = 8;
+var INTENTOS_CLAVE = 5; // cada 15 minutos, por persona
+
+function huellaClave_(sal, clave) {
+  var h = sal + ':' + clave;
+  for (var i = 0; i < 500; i++) h = huella_(sal + h);
+  return h;
+}
+
+function guardarClave_(pedido) {
+  return conCandado_(function () {
+    var s = abrir_(pedido.id);
+    var p = personaConToken_(s, pedido.token);
+    p.clave = nuevaClave_(pedido.clave);
+    guardar_(s);
+    return {};
+  });
+}
+
+function nuevaClave_(valor) {
+  var clave = String(valor || '');
+  if (clave.length < MIN_CLAVE) throw aviso_('La contraseña necesita al menos ' + MIN_CLAVE + ' caracteres.');
+  if (clave.length > 100) throw aviso_('La contraseña es demasiado larga.');
+  if (/^(\d)\1*$/.test(clave) || /^(?:0123456789|123456789|12345678)/.test(clave)) throw aviso_('Elegí una contraseña más difícil de adivinar.');
+  var sal = nuevoToken_().slice(0, 16);
+  return sal + '$' + huellaClave_(sal, clave);
+}
+
+/**
+ * Eventos con ingreso por contraseña (elegido por quien organiza, sin mail ni PIN): la primera persona que
+ * elige un nombre libre crea su contraseña y ese nombre queda tomado. Si alguien tomó un nombre ajeno,
+ * quien organiza lo libera desde Participantes.
+ */
+function reclamar_(pedido) {
+  return conCandado_(function () {
+    var s = abrir_(pedido.id);
+    if (s.ingreso !== 'clave') throw aviso_('En este sorteo se entra con el PIN del mail.');
+    var p = personaLibre_(s, pedido.persona);
+    p.clave = nuevaClave_(pedido.clave);
+    p.validada = ahora_();
+    return abrirSesion_(s, p);
+  });
+}
+
+function entrarConClave_(pedido) {
+  return conCandado_(function () {
+    var s = abrir_(pedido.id);
+    var p = buscarPersona_(s, pedido.persona);
+    var mail = validarMail_(pedido.mail);
+    var cache = CacheService.getScriptCache();
+    var clave = 'clave:' + s.id + ':' + p.id;
+    var fallos = Number(cache.get(clave) || 0);
+    if (fallos >= INTENTOS_CLAVE) throw aviso_('Demasiados intentos. Esperá 15 minutos o pedí tu acceso por mail.');
+    var partes = String(p.clave || '').split('$');
+    var ok = p.validada && p.clave && (s.ingreso === 'clave' || (mail && mail === p.mail)) && huellaClave_(partes[0], String(pedido.clave || '')) === partes[1];
+    if (!ok) {
+      cache.put(clave, String(fallos + 1), 900);
+      throw aviso_('El mail o la contraseña no coinciden.');
+    }
+    cache.remove(clave);
+    return abrirSesion_(s, p);
+  });
+}
+
 function ocultarMail_(mail) {
   var partes = mail.split('@');
   return partes[0].slice(0, 1) + '•••@' + partes[1];
@@ -1103,6 +1243,11 @@ function yo_(pedido) {
     sorteado: s.estado === 'sorteado',
     regala: regala_(s, p),
     vio: p.vio === true,
+    // Evento con gestión familiar: la persona ve también "Mi familia".
+    familia: s.reglaFamilia === true,
+    miFamilia: s.reglaFamilia !== true ? [] : (function (grupo) {
+      return s.personas.filter(function (x) { return x.id !== p.id && grupo[x.id] === grupo[p.id]; }).map(function (x) { return x.nombre; });
+    })(familias_(s)),
     aCargo: s.personas.filter(function (x) { return gestiona_(x, p); }).map(function (x) {
       var con = s.personas.filter(function (y) { return y.tipo === 'adulto' && y.id !== p.id && (y.id === p.pareja || (x.padres || []).indexOf(y.id) !== -1); });
       return {
@@ -1118,6 +1263,7 @@ function yo_(pedido) {
     // Los especiales adicionales no son sorpresa para quien los da.
     especiales: s.estado !== 'sorteado' ? [] : regalosDe_(s, {}, p.id).map(function (x) { return verRegalo_(s, x); }),
     reinicio: p.reinicio || '',
+    conClave: !!p.clave,
     mailPropuesto: p.mailPropuesto || '',
     editable: hoy_() <= s.evento.fecha,
     puedeSumarHijos: p.tipo === 'adulto',
@@ -1427,6 +1573,7 @@ function quitarAccesos_(p) {
   p.sesiones = [];
   p.entro = false;
   p.envio = '';
+  p.clave = '';
 }
 
 function nuevoToken_() {
@@ -1562,10 +1709,10 @@ function enviarLinks_(sorteo, envios) {
         responderA: sorteo.organizador.mail,
         asunto: sorteado ? 'Ya se hizo el Sorteo Navideño' : envio.pin ? 'Te invitaron a un Sorteo Navideño' : 'Tu link de yori',
         titulo: 'Hola, ' + envio.persona.nombre,
-        texto: (sorteado ? organiza + ' hizo el sorteo de Navidad. Entrá para ver a quién le regalás y cargar tu lista de deseos.'
+        texto: (sorteo.evento.mensaje ? sorteo.evento.mensaje + '\n\n' : '') + (sorteado ? organiza + ' hizo el sorteo de Navidad. Entrá para ver a quién le regalás y cargar tu lista de deseos.'
           : envio.pin ? organiza + ' te invitó a participar de su sorteo de Navidad.'
             : 'Con este link volvés a entrar al sorteo que organiza ' + organiza + '.') +
-          (envio.pin ? ' Abrí el link y escribí este PIN para validar tu nombre. Es personal: no lo compartas.' : ' El link es privado: no lo reenvíes.'),
+          (envio.pin ? ' Abrí el link y escribí este PIN para validar tu nombre. Es personal: no lo compartas. Una vez adentro, podés crear una contraseña para volver a entrar con tu mail.' : ' El link es privado: no lo reenvíes.'),
         destacado: envio.pin,
         boton: 'Entrar',
         url: URL_APP + (envio.pin ? '#/g/' + sorteo.id + '/' + envio.persona.id : '#/s/' + sorteo.id + '/' + envio.token)
@@ -1595,7 +1742,7 @@ function enviarMail_(m) {
     htmlBody:
       '<div style="font-family:Montserrat,Arial,sans-serif;max-width:480px;margin:0 auto;padding:24px;color:#0f172a;font-size:15px;line-height:1.6">' +
       '<p style="font-size:18px;font-weight:600;margin:0 0 16px">' + escapar_(m.titulo) + '</p>' +
-      '<p style="margin:0 0 24px">' + escapar_(m.texto) + '</p>' +
+      '<p style="margin:0 0 24px;white-space:pre-line">' + escapar_(m.texto) + '</p>' +
       accesos.map(function (x) {
         return (x.texto ? '<p style="margin:0 0 10px">' + escapar_(x.texto) + '</p>' : '') +
           (x.destacado ? '<p style="margin:0 0 20px;font-family:Courier New,monospace;font-size:30px;letter-spacing:4px">' + escapar_(x.destacado) + '</p>' : '') +
@@ -1669,7 +1816,7 @@ function llamar_(sql, valores) {
       ['sin identidad', 'Esta persona todavía no entró a yori.'],
       ['participantes_evento_id_persona_id_key', 'Ese mail ya es de otra persona de este sorteo.']
     ].filter(function (x) { return texto.indexOf(x[0]) !== -1; })[0];
-    if (avisos) throw aviso_(avisos[1]);
+    if (avisos) { var e = aviso_(avisos[1]); e.detalle = (texto.match(/Key \([^)]*\)=\([^)]*\)/) || [''])[0]; throw e; }
     throw error;
   } finally {
     consulta.close();
@@ -1776,7 +1923,7 @@ function migrarASupabase() {
           var campos = diferencias_(normalizar_(s), normalizar_(abrir_(s.id)));
           if (campos.length) informe.distintos.push(s.id + ': ' + campos.join(', ')); else informe.iguales++;
         } catch (error) {
-          informe.errores.push(s.id + ': ' + (error.message || error));
+          informe.errores.push(s.id + ': ' + (error.message || error) + (error.detalle ? ' ' + error.detalle : ''));
         }
       });
     });

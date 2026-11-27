@@ -1204,6 +1204,82 @@ test('link familiar: un solo link muestra los regalos de esa familia y de ningun
   assert.equal(ver().sinAcceso, true, 'generar otro anula el anterior');
 });
 
+test('mi familia: con sesión propia, a quién le regala cada uno del núcleo y nunca quién le regala', () => {
+  const g = cargar('https://app/');
+  const { s, id } = cuatroFamilias(g);
+  s.ad('invitar');
+  const a1 = { id: s.id, token: s.entrar('A1', '', s.pinDe('a1@x.com')).datos.token };
+  const nucleo = (x) => g.pedir({ accion: 'nucleo', ...a1, ...x });
+  assert.equal(nucleo().datos.sorteado, false);
+  assert.ok(s.ad('sortear').ok);
+  const antes = leerFila(g, s.id).parejas;
+  assert.deepEqual([nucleo().datos.revelado, nucleo().datos.regalos.length], [false, 0], 'primero se revela a propósito');
+  const v = nucleo({ revelar: true }).datos;
+  assert.deepEqual(v.regalos.map((x) => x.de).sort(), ['A1', 'A2']);
+  assert.equal(v.regalos.find((x) => x.de === 'A1').yo, true);
+  const familiaA = ['A1', 'A2', 'ha1', 'ha2'];
+  for (const x of v.regalos) for (const y of x.a) assert.ok(!familiaA.includes(y.nombre), 'solo a quién le regalan: nadie del núcleo figura como destinatario');
+  assert.equal(leerFila(g, s.id).parejas, antes, 'no cambia asignaciones');
+  assert.equal(g.pedir({ accion: 'nucleo', id: s.id, token: 'x' }).sinAcceso, true, 'sin sesión no hay nada');
+  escribirFila(g, s.id, (x) => { x.reglaFamilia = false; });
+  assert.match(nucleo().error, /no es familiar/, 'sin sorteo familiar no se ve la pareja');
+});
+
+test('mis eventos: un link del mail abre todos sus eventos; existen solo confirma IDs', () => {
+  const g = cargar('https://app/');
+  const { s } = cuatroFamilias(g);
+  s.ad('invitar');
+  s.entrar('A1', '', s.pinDe('a1@x.com'));
+  g.estado.cupo = 100;
+  assert.ok(g.pedir({ accion: 'acceder', mail: 'a1@x.com' }).ok);
+  const token = g.correos.at(-1).body.match(/#\/e\/(\w+)/)[1];
+  const r = g.pedir({ accion: 'misEventos', token }).datos.eventos;
+  assert.deepEqual(r.map((e) => [e.id, e.nombre]), [[s.id, 'A1']]);
+  assert.equal(g.pedir({ accion: 'misEventos', token: 'x' }).sinAcceso, true);
+  assert.deepEqual(g.pedir({ accion: 'existen', ids: [s.id, 'snoexiste'] }).datos.ids, [s.id]);
+});
+
+test('contraseña: se crea con sesión, permite entrar con mail y contraseña, limita intentos', () => {
+  const g = cargar('https://app/');
+  const { s, id } = cuatroFamilias(g);
+  s.ad('invitar');
+  const a1 = { id: s.id, token: s.entrar('A1', '', s.pinDe('a1@x.com')).datos.token };
+  const entrar = (mail, clave) => g.pedir({ accion: 'entrarConClave', id: s.id, persona: id('A1'), mail, clave });
+  assert.match(entrar('a1@x.com', 'loquesea1').error, /no coinciden/, 'sin contraseña creada no entra');
+  assert.match(g.pedir({ accion: 'guardarClave', ...a1, clave: '1234' }).error, /8 caracteres/);
+  assert.match(g.pedir({ accion: 'guardarClave', ...a1, clave: '12345678' }).error, /difícil/);
+  assert.equal(g.pedir({ accion: 'guardarClave', id: s.id, token: 'x', clave: 'navidad2026' }).sinAcceso, true);
+  assert.ok(g.pedir({ accion: 'guardarClave', ...a1, clave: 'navidad2026' }).ok);
+  assert.ok(!leerFila(g, s.id).personas.find((p) => p.nombre === 'A1').clave.includes('navidad2026'), 'solo la huella');
+  assert.equal(g.pedir({ accion: 'grupo', id: s.id }).datos.personas.find((p) => p.nombre === 'A1').conClave, true);
+  assert.match(entrar('otro@x.com', 'navidad2026').error, /no coinciden/, 'otro mail no sirve');
+  const r = entrar('A1@x.com', 'navidad2026');
+  assert.ok(r.ok, r.error);
+  assert.ok(g.pedir({ accion: 'yo', id: s.id, token: r.datos.token }).ok, 'abre una sesión propia');
+  for (let i = 0; i < 5; i++) entrar('a1@x.com', 'mal' + i);
+  assert.match(entrar('a1@x.com', 'navidad2026').error, /Demasiados intentos/);
+});
+
+test('ingreso por contraseña: el primero que elige un nombre crea su contraseña; solo en eventos marcados', () => {
+  const g = cargar('https://app/');
+  const { s, id } = cuatroFamilias(g);
+  const reclamar = (n, clave) => g.pedir({ accion: 'reclamar', id: s.id, persona: id(n), clave });
+  assert.match(reclamar('A1', 'navidad2026').error, /PIN del mail/, 'sin la marca del evento no se puede');
+  escribirFila(g, s.id, (x) => { x.ingreso = 'clave'; });
+  assert.equal(g.pedir({ accion: 'grupo', id: s.id }).datos.ingreso, 'clave');
+  assert.match(reclamar('A1', '1234').error, /8 caracteres/);
+  const r = reclamar('A1', 'navidad2026');
+  assert.ok(r.ok, r.error);
+  assert.ok(g.pedir({ accion: 'yo', id: s.id, token: r.datos.token }).ok);
+  assert.match(reclamar('A1', 'otraclave99').error, /ya fue validado/, 'el nombre queda tomado');
+  assert.match(reclamar('ha1', 'navidad2026').error, /a cargo/, 'los menores sin mail los gestiona su adulto');
+  const entrar = (clave) => g.pedir({ accion: 'entrarConClave', id: s.id, persona: id('A1'), clave });
+  assert.match(entrar('mala-clave').error, /no coinciden/);
+  assert.ok(entrar('navidad2026').ok, 'vuelve a entrar sin mail');
+  assert.ok(s.ad('liberar', { persona: id('A1') }).ok);
+  assert.ok(reclamar('A1', 'nuevaclave1').ok, 'quien organiza libera el nombre y se puede volver a tomar');
+});
+
 /* ---------- Supabase: solo con YORI_ALMACEN=supabase y una base local ---------- */
 
 const conBase = { skip: process.env.YORI_ALMACEN !== 'supabase' && 'necesita la base local' };

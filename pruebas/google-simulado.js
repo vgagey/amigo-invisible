@@ -84,6 +84,11 @@ module.exports = function cargar(urlApp) {
     vm.runInContext(fs.readFileSync(path.join(__dirname, '../apps-script', archivo), 'utf8'), contexto, { filename: archivo });
   }
   if (urlApp) contexto.URL_APP = urlApp;
+  // Vista local con una copia de sorteos (archivo fuera del repo). Nada sale de esta compu.
+  if (process.env.YORI_COPIA) {
+    filas.push(['id', 'borrar', 'datos'], ...JSON.parse(fs.readFileSync(process.env.YORI_COPIA, 'utf8')).map(([id, b, d]) => [id, b, JSON.stringify(d)]));
+    creada = true;
+  }
 
   return {
     contexto, correos, estado, filas,
