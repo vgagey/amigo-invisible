@@ -9,7 +9,7 @@ module.exports = function cargar(urlApp) {
   const filas = [];
   const correos = [];
   const cache = new Map();
-  const propiedades = new Map(process.env.YORI_ALMACEN ? [['ALMACEN', process.env.YORI_ALMACEN]] : []);
+  const propiedades = new Map([['ALMACEN', process.env.YORI_ALMACEN || 'planilla']]);
   const estado = { cupo: 100, rebota: null };
 
   const hoja = {

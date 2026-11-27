@@ -954,7 +954,7 @@ function acceder_(pedido) {
 /** Cuáles de estos eventos siguen existiendo. Solo responde por IDs que el dispositivo ya conoce. */
 function existen_(pedido) {
   var ids = (Array.isArray(pedido.ids) ? pedido.ids : []).slice(0, 50).map(String);
-  if (enSupabase_()) return { ids: ids.filter(function (id) { return !!llamar_('select yori.abrir(?)::text', [id])[0]; }) };
+  if (enSupabase_()) return { ids: ids.filter(function (id) { return !!(llamar_('select yori.abrir(?)::text', [id])[0] || traerDePlanilla_(id)); }) };
   var hoja = hoja_();
   return { ids: ids.filter(function (id) { return !!buscarFila_(hoja, id); }) };
 }
@@ -1785,8 +1785,9 @@ function buscarFila_(hoja, id) {
  * Se usa cuando la propiedad ALMACEN es "supabase". Apps Script entra como yori_app, que
  * solo puede ejecutar las funciones de yori. Los datos van y vienen con la misma forma. */
 
+/** Supabase es el almacenamiento desde la versión 8. Con ALMACEN = "planilla" se vuelve a la planilla. */
 function enSupabase_() {
-  return PropertiesService.getScriptProperties().getProperty('ALMACEN') === 'supabase';
+  return PropertiesService.getScriptProperties().getProperty('ALMACEN') !== 'planilla';
 }
 
 var conexion_ = null;
@@ -1845,7 +1846,7 @@ function delMail_(mail) {
 
 function abrir_(id) {
   if (enSupabase_()) {
-    var texto = llamar_('select yori.abrir(?)::text', [String(id || '')])[0];
+    var texto = llamar_('select yori.abrir(?)::text', [String(id || '')])[0] || traerDePlanilla_(String(id || ''));
     if (!texto) throw sinAcceso_('Este sorteo no existe o ya se borró.');
     return desdeBase_(texto);
   }
@@ -1853,6 +1854,21 @@ function abrir_(id) {
   var fila = buscarFila_(hoja, String(id || ''));
   if (!fila) throw sinAcceso_('Este sorteo no existe o ya se borró.');
   return JSON.parse(hoja.getRange(fila, 3).getValue());
+}
+
+/** Pase a Supabase sin pasos manuales: un sorteo que solo está en la planilla se copia tal cual la primera vez que se abre. La planilla no se toca. */
+function traerDePlanilla_(id) {
+  var hoja = hoja_();
+  var fila = id && buscarFila_(hoja, id);
+  if (!fila) return null;
+  var s = JSON.parse(hoja.getRange(fila, 3).getValue());
+  delete s.version;
+  try {
+    llamar_('select yori.guardar(?::jsonb, ?)::text', [haciaBase_(s), 0]);
+  } catch (error) {
+    if (String(error.message).indexOf('Otra persona') === -1) throw error; // otro pedido lo copió recién
+  }
+  return llamar_('select yori.abrir(?)::text', [id])[0];
 }
 
 function todos_() {
@@ -1928,7 +1944,7 @@ function migrarASupabase() {
       });
     });
   } finally {
-    PropertiesService.getScriptProperties().setProperty('ALMACEN', anterior || '');
+    PropertiesService.getScriptProperties().setProperty('ALMACEN', anterior || 'planilla');
   }
   console.log(JSON.stringify(informe)); // solo IDs y nombres de campos: nunca datos
   return informe;
@@ -1945,14 +1961,14 @@ function usarSupabase() {
 function volverAPlanilla() {
   var props = PropertiesService.getScriptProperties();
   props.setProperty('ALMACEN', 'supabase');
-  props.setProperty('ALMACEN', '');
+  props.setProperty('ALMACEN', 'planilla');
   var ids = todos_().map(function (s) { return s.id; });
   props.setProperty('ALMACEN', 'supabase');
   var lista = [];
   conCandado_(function () {
     ids.forEach(function (id) { var x = llamar_('select yori.abrir(?)::text', [id])[0]; if (x) lista.push(desdeBase_(x)); });
   });
-  props.setProperty('ALMACEN', '');
+  props.setProperty('ALMACEN', 'planilla');
   conCandado_(function () { lista.forEach(function (s) { delete s.version; guardar_(s); }); });
 }
 
@@ -1960,13 +1976,13 @@ function volverAPlanilla() {
 function normalizar_(s) {
   var t = function (x) { return x || ''; };
   return {
-    id: s.id, estado: s.estado, reglaFamilia: s.reglaFamilia === true, propuestas: s.propuestas === true,
+    id: s.id, estado: s.estado, reglaFamilia: s.reglaFamilia === true, propuestas: s.propuestas === true, ingreso: s.ingreso === 'clave' ? 'clave' : 'mail',
     organizador: s.organizador, admin: s.admin, admins: s.admins || [], parejas: s.parejas ? mostrar_(s.parejas) : null,
     evento: { nombre: s.evento.nombre, fecha: s.evento.fecha, presupuesto: s.evento.presupuesto === null || s.evento.presupuesto === undefined ? null : Number(s.evento.presupuesto), mensaje: t(s.evento.mensaje), modalidad: s.evento.modalidad || 'A' },
     personas: s.personas.map(function (p) {
       return {
         id: p.id, nombre: p.nombre, tipo: p.tipo, telefono: t(p.telefono), correo: t(p.correo), mail: t(p.mail), mailPropuesto: t(p.mailPropuesto),
-        validada: t(p.validada), reinicio: t(p.reinicio), envio: t(p.envio), entro: !!p.entro, vio: !!p.vio, pareja: t(p.pareja), responsable: t(p.responsable),
+        validada: t(p.validada), reinicio: t(p.reinicio), envio: t(p.envio), entro: !!p.entro, vio: !!p.vio, clave: t(p.clave), pareja: t(p.pareja), responsable: t(p.responsable),
         padres: p.padres || [], gestores: (p.gestores || []).slice().sort(), enlace: t(p.enlace), pin: t(p.pin), fallos: p.pin ? p.fallos || 0 : 0, sesiones: p.sesiones || [],
         deseos: typeof p.deseos === 'string' ? p.deseos : leerLista_(p.deseos)
       };

@@ -1302,11 +1302,28 @@ test('supabase: eliminar mis datos y eliminar evento', conBase, () => {
   assert.equal(s.ad('admin').sinAcceso, true);
 });
 
+test('supabase: un sorteo que solo está en la planilla se copia solo al abrirlo', conBase, () => {
+  const g = cargar('https://app/');
+  const props = g.contexto.PropertiesService.getScriptProperties();
+  props.setProperty('ALMACEN', 'planilla');
+  const { s, id } = cuatroFamilias(g);
+  assert.ok(s.ad('guardarEspecial', { de: id('A2'), a: id('hb3'), modo: 'adicional' }).ok);
+  assert.ok(s.ad('sortear').ok);
+  escribirFila(g, s.id, (x) => { x.ingreso = 'clave'; x.personas[0].clave = 'sal$huella'; });
+  const antes = g.contexto.normalizar_(JSON.parse(g.filas.find((f) => f[0] === s.id)[2]));
+  props.setProperty('ALMACEN', '');
+  assert.deepEqual(g.pedir({ accion: 'existen', ids: [s.id] }).datos.ids, [s.id]);
+  const copia = g.contexto.abrir_(s.id);
+  assert.deepEqual(g.contexto.diferencias_(antes, g.contexto.normalizar_(copia)), [], 'igual a la planilla');
+  assert.ok(s.ad('admin').ok, 'el panel sigue andando');
+  assert.equal(g.contexto.abrir_(s.id).version, copia.version, 'no se vuelve a copiar');
+});
+
 test('supabase: pasa los sorteos de la planilla sin cambiar nada', conBase, () => {
   const g = cargar('https://app/');
   process.env.YORI_ALMACEN = '';
   const props = g.contexto.PropertiesService.getScriptProperties();
-  props.setProperty('ALMACEN', '');
+  props.setProperty('ALMACEN', 'planilla');
   const { s } = cuatroFamilias(g);
   s.ad('invitar');
   const a1 = { id: s.id, token: s.entrar('A1', '', s.pinDe('a1@x.com')).datos.token };
@@ -1316,13 +1333,13 @@ test('supabase: pasa los sorteos de la planilla sin cambiar nada', conBase, () =
   const antes = leerFila(g, s.id);
   const informe = g.contexto.migrarASupabase();
   assert.deepEqual([informe.copiados, informe.iguales, informe.distintos, informe.errores], [1, 1, [], []], JSON.stringify(informe));
-  assert.equal(props.getProperty('ALMACEN'), '', 'migrar solo no cambia lo que usa la app');
+  assert.equal(props.getProperty('ALMACEN'), 'planilla', 'migrar solo no cambia lo que usa la app');
   assert.deepEqual(g.contexto.migrarASupabase().yaEstaban, 1, 'repetirlo no duplica');
   g.contexto.usarSupabase();
   assert.equal(props.getProperty('ALMACEN'), 'supabase');
   const ahora = g.pedir({ accion: 'descubrir', ...a1 });
   assert.ok(ahora.ok, ahora.error);
-  props.setProperty('ALMACEN', '');
+  props.setProperty('ALMACEN', 'planilla');
   assert.deepEqual(leerFila(g, s.id), antes, 'la planilla queda igual');
   assert.deepEqual(g.pedir({ accion: 'descubrir', ...a1 }).datos, ahora.datos, 'mismas asignaciones en las dos');
   process.env.YORI_ALMACEN = 'supabase';
